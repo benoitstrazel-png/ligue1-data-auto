@@ -1,3 +1,25 @@
+import os
+import sys
+
+print("---------------- DIAGNOSTIC FICHIERS ----------------")
+print(f"📂 Répertoire actuel du script : {os.getcwd()}")
+print("🔎 Recherche du fichier 'calendrier' partout...")
+
+found = False
+for root, dirs, files in os.walk("."):
+    for name in files:
+        if "calendrier" in name.lower(): # On cherche le mot clé peu importe la majuscule
+            print(f"✅ TROUVÉ ! Chemin exact : {os.path.join(root, name)}")
+            print(f"👉 Nom exact à utiliser : {name}")
+            found = True
+
+if not found:
+    print("❌ Fichier introuvable. Liste de tous les fichiers présents :")
+    print(os.listdir("."))
+print("-----------------------------------------------------")
+
+# ... Le reste de ton code ...
+
 import requests
 import pandas as pd
 import time
