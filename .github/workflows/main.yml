@@ -1,11 +1,3 @@
-steps:
-      # 1. CETTE ÉTAPE EST OBLIGATOIRE POUR VOIR LES FICHIERS
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      # 2. Installation Python...
-      
-      # ...
 
 name: Mise à jour quotidienne Ligue 1
 
@@ -40,7 +32,14 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
+steps:
+      # 1. CETTE ÉTAPE EST OBLIGATOIRE POUR VOIR LES FICHIERS
+      - name: Checkout code
+        uses: actions/checkout@v4
 
+      # 2. Installation Python...
+      
+      # ...
       # 4. Exécute ton script
       - name: Run scraping script
         env:
