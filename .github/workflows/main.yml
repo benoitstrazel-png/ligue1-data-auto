@@ -1,3 +1,12 @@
+steps:
+      # 1. CETTE ÉTAPE EST OBLIGATOIRE POUR VOIR LES FICHIERS
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Installation Python...
+      
+      # ...
+
 name: Mise à jour quotidienne Ligue 1
 
 # DÉCLENCHEUR
