@@ -51,7 +51,7 @@ jobs:
         run: |
           git config --global user.name 'GitHub Action Bot'
           git config --global user.email 'action@github.com'
-          git add stats_joueurs_L1_2023.csv
+          git add stats_joueurs_L1_2023
           # Le "|| exit 0" évite l'erreur si rien n'a changé
           git commit -m "Mise à jour automatique des données" || exit 0
           git push
