@@ -1,24 +1,23 @@
-
 name: Mise à jour quotidienne Ligue 1
 
-# DÉCLENCHEUR
+# Quand le script doit-il se lancer ?
 on:
   schedule:
-    # Cron syntax : "Au changement de minute 0, à l'heure 7 (UTC), tous les jours"
-    # 7h00 UTC = 8h00 ou 9h00 en France selon l'heure d'hiver/été
-    - cron: '0 7 * * *'
-  # Permet aussi de lancer le script manuellement avec un bouton pour tester
-  workflow_dispatch:
+    - cron: '0 7 * * *'  # Tous les jours à ~8h00/9h00 (heure FR)
+  workflow_dispatch:       # Permet de lancer manuellement avec le bouton "Run workflow"
 
+# Permissions pour permettre au bot de sauvegarder le CSV
 permissions:
   contents: write
 
+# La liste des tâches
 jobs:
   build:
     runs-on: ubuntu-latest
 
+    # C'est ICI que doit être "steps", décalé de 4 espaces par rapport à "jobs"
     steps:
-      # 1. Récupère ton code
+      # 1. ÉTAPE CRUCIALE : Récupère ton code ET tes fichiers CSV du dépôt
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -28,31 +27,31 @@ jobs:
         with:
           python-version: '3.9'
 
-      # 3. Installe les librairies (pandas, requests)
+      # 3. Installe les librairies nécessaires
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
-steps:
-      # 1. CETTE ÉTAPE EST OBLIGATOIRE POUR VOIR LES FICHIERS
-      - name: Checkout code
-        uses: actions/checkout@v4
+          pip install pandas requests
 
-      # 2. Installation Python...
-      
-      # ...
-      # 4. Exécute ton script
+      # 4. DEBUG : Affiche la liste des fichiers présents sur le serveur
+      # Cela nous permettra de voir si 'calendrier_L1_2023.csv' est bien là
+      - name: Debug - Show files
+        run: |
+          echo "Voici les fichiers présents :"
+          ls -la
+
+      # 5. Lance ton script Python
       - name: Run scraping script
         env:
-          # On injecte la clé secrète dans le script
+          # Récupère la clé API stockée dans les secrets GitHub
           API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
         run: python main.py
 
-      # 5. Sauvegarde le nouveau CSV (Commit & Push)
+      # 6. Sauvegarde les modifications (nouveau CSV) dans GitHub
       - name: Commit and push changes
         run: |
           git config --global user.name 'GitHub Action Bot'
           git config --global user.email 'action@github.com'
           git add stats_joueurs_L1_2023.csv
-          # On ne commit que s'il y a eu des changements
-          git commit -m "Mise à jour automatique des données: $(date)" || exit 0
+          # Le "|| exit 0" évite l'erreur si rien n'a changé
+          git commit -m "Mise à jour automatique des données" || exit 0
           git push
