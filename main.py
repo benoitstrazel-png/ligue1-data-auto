@@ -1,25 +1,25 @@
+import requests
+import pandas as pd
+import time
 import os
 import sys
 
-print("---------------- DIAGNOSTIC FICHIERS ----------------")
-print(f"📂 Répertoire actuel du script : {os.getcwd()}")
-print("🔎 Recherche du fichier 'calendrier' partout...")
+# --- MODIFICATION CRUCIALE POUR GITHUB ACTIONS ---
+# On récupère la clé depuis les "Secrets" de GitHub, pas en dur dans le code
+try:
+    API_KEY = os.environ["API_FOOTBALL_KEY"]
+except KeyError:
+    print("Erreur : La variable d'environnement API_FOOTBALL_KEY est manquante.")
+    sys.exit(1)
 
-found = False
-for root, dirs, files in os.walk("."):
-    for name in files:
-        if "calendrier" in name.lower(): # On cherche le mot clé peu importe la majuscule
-            print(f"✅ TROUVÉ ! Chemin exact : {os.path.join(root, name)}")
-            print(f"👉 Nom exact à utiliser : {name}")
-            found = True
+# Le reste de tes paramètres
+LEAGUE_ID = 61
+SEASON = 2023
+FILENAME = "stats_joueurs_L1_2023.csv"
+LIMIT_REQUESTS = 80 
 
-if not found:
-    print("❌ Fichier introuvable. Liste de tous les fichiers présents :")
-    print(os.listdir("."))
-print("-----------------------------------------------------")
-
-# ... Le reste de ton code ...
-
+# ... [COLLE ICI TOUT LE RESTE DE TON CODE PRÉCÉDENT] ...
+# Assure-toi que le code lit et écrit le CSV dans le même dossier
 import requests
 import pandas as pd
 import time
@@ -44,7 +44,7 @@ headers = {"x-apisports-key": API_KEY}
 
 # Fichiers
 FILENAME_STATS = "stats_joueurs_L1_2023.csv"
-FILENAME_CALENDRIER = "calendrier_L1_2023.csv" ### MODIF : Nom de ton fichier calendrier
+FILENAME_CALENDRIER = "ligue1_history.csv" ### MODIF : Nom de ton fichier calendrier
 LIMIT_REQUESTS = 80 
 
 # ------------------------------------------------------------------
