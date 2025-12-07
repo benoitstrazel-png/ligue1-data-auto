@@ -109,78 +109,85 @@ def load_multi_season_stats(seasons_list):
         df['date'] = pd.to_datetime(df['date'], utc=True).dt.tz_localize(None)
     return df
 
-# --- LOGIQUE MÉTIER ---
-
-def calculate_h2h_detailed(df, team, opponent):
-    """Calcule les stats moyennes détaillées (Tirs, Cartons) entre 2 équipes"""
-    # Filtrer les matchs entre Team et Opponent
-    mask = ((df['home_team'] == team) & (df['away_team'] == opponent)) | \
-           ((df['home_team'] == opponent) & (df['away_team'] == team))
-    df_h2h = df[mask]
-    
-    if df_h2h.empty:
-        return None, 0
-    
-    stats = {
-        'goals_for': [], 'goals_against': [],
-        'shots_for': [], 'shots_against': [],
-        'target_for': [], 'target_against': [],
-        'yellow_for': [], 'red_for': []
-    }
-    
-    for _, row in df_h2h.iterrows():
-        is_home = row['home_team'] == team
-        
-        # Gestion des buts
-        stats['goals_for'].append(row['full_time_home_goals'] if is_home else row['full_time_away_goals'])
-        stats['goals_against'].append(row['full_time_away_goals'] if is_home else row['full_time_home_goals'])
-        
-        # Gestion des tirs (si dispo)
-        if pd.notna(row.get('home_shots')):
-            stats['shots_for'].append(row['home_shots'] if is_home else row['away_shots'])
-            stats['shots_against'].append(row['away_shots'] if is_home else row['home_shots'])
-            stats['target_for'].append(row['home_shots_on_target'] if is_home else row['away_shots_on_target'])
-            stats['target_against'].append(row['away_shots_on_target'] if is_home else row['home_shots_on_target'])
-        
-        # Cartons
-        if pd.notna(row.get('home_yellow_cards')):
-            stats['yellow_for'].append(row['home_yellow_cards'] if is_home else row['away_yellow_cards'])
-            stats['red_for'].append(row['home_red_cards'] if is_home else row['away_red_cards'])
-
-    # Calcul des moyennes
-    avg_stats = {k: (np.mean(v) if v else 0) for k, v in stats.items()}
-    return avg_stats, len(df_h2h)
-
-def predict_match_score(df_history, team_home, team_away):
+def calculate_streak_probability(df, streak_length=3):
     """
-    Prédit le score basé sur la Loi de Poisson
-    en utilisant les forces d'attaque et de défense sur L'ENSEMBLE de l'historique fourni.
+    Calcule la probabilité de gagner le match SUIVANT après une série de 'streak_length' victoires.
+    Basé sur l'historique global chargé (toutes les équipes).
     """
-    if df_history.empty: return None, None
+    # On travaille sur une copie pour ne pas casser l'original
+    df_calc = df.copy()
+    
+    # On s'assure que c'est trié par date
+    df_calc = df_calc.sort_values('date')
+    
+    # On crée une liste unique de tous les matchs (Home + Away) du point de vue de chaque équipe
+    # C'est un peu technique : on dédouble le dataframe pour avoir une ligne par équipe/match
+    matches_home = df_calc[['date', 'home_team', 'full_time_result']].rename(columns={'home_team': 'team'})
+    matches_home['is_win'] = matches_home['full_time_result'] == 'H'
+    
+    matches_away = df_calc[['date', 'away_team', 'full_time_result']].rename(columns={'away_team': 'team'})
+    matches_away['is_win'] = matches_away['full_time_result'] == 'A'
+    
+    all_matches = pd.concat([matches_home, matches_away]).sort_values(['team', 'date'])
+    
+    # On calcule la série actuelle pour chaque ligne
+    # Astuce Pandas : On groupe par équipe, et on compare avec un décalage (shift)
+    
+    stats = []
+    
+    # Pour chaque équipe...
+    for team, group in all_matches.groupby('team'):
+        # On repère les séries de victoires (rolling window)
+        # Si la somme des 3 derniers matchs = 3, c'est une série
+        was_streak = group['is_win'].rolling(streak_length).sum().shift(1) == streak_length
+        
+        # On regarde les matchs qui ont SUIVI cette série
+        after_streak_matches = group[was_streak]
+        
+        if not after_streak_matches.empty:
+            stats.append(after_streak_matches['is_win'])
+            
+    if not stats:
+        return None
+        
+    # On concatène tous les résultats trouvés
+    all_results_after_streak = pd.concat(stats)
+    
+    # Calcul du % de victoire
+    win_rate = all_results_after_streak.mean() * 100
+    sample_size = len(all_results_after_streak)
+    
+    return win_rate, sample_size
 
-    # 1. Moyennes globales sur la période
-    avg_home_goals = df_history['full_time_home_goals'].mean()
-    avg_away_goals = df_history['full_time_away_goals'].mean()
+
+# ... (Dans la section DUEL & PRÉDICTION) ...
+
+# 1. On calcule la série actuelle de l'équipe sélectionnée
+# On regarde ses 3 derniers matchs
+last_3_matches = df_matchs_focus[
+    ((df_matchs_focus['home_team'] == selected_team) | (df_matchs_focus['away_team'] == selected_team))
+    & (df_matchs_focus['date'] < pd.Timestamp.now()) # On s'assure de ne pas prendre de matchs futurs
+].sort_values('date', ascending=False).head(3)
+
+current_streak = 0
+for _, row in last_3_matches.iterrows():
+    is_home = row['home_team'] == selected_team
+    if (is_home and row['full_time_result'] == 'H') or (not is_home and row['full_time_result'] == 'A'):
+        current_streak += 1
+    else:
+        break # La série est brisée
+
+# 2. Si l'équipe est sur une série de 3 victoires (ou plus), on affiche la stat historique
+if current_streak >= 3:
+    win_rate, count = calculate_streak_probability(df_history_multi, streak_length=3)
     
-    # 2. Stats Domicile (Team Home)
-    home_matches = df_history[df_history['home_team'] == team_home]
-    if home_matches.empty: return None, None # L'équipe n'a jamais joué à domicile sur cette période
-    
-    attack_home = home_matches['full_time_home_goals'].mean() / avg_home_goals
-    defense_home = home_matches['full_time_away_goals'].mean() / avg_away_goals
-    
-    # 3. Stats Extérieur (Team Away)
-    away_matches = df_history[df_history['away_team'] == team_away]
-    if away_matches.empty: return None, None # L'équipe n'a jamais joué à l'extérieur sur cette période
-    
-    attack_away = away_matches['full_time_away_goals'].mean() / avg_away_goals
-    defense_away = away_matches['full_time_home_goals'].mean() / avg_home_goals
-    
-    # 4. Calcul des "Expected Goals" (xG)
-    xg_home = attack_home * defense_away * avg_home_goals
-    xg_away = attack_away * defense_home * avg_away_goals
-    
-    return xg_home, xg_away
+    if win_rate is not None:
+        st.info(f"""
+        🔥 **L'équipe est en feu !** {selected_team} reste sur {current_streak} victoires consécutives.
+        
+        Historiquement (sur les saisons analysées), une équipe qui a gagné 3 matchs de suite 
+        **remporte le 4ème match dans {win_rate:.1f}% des cas** (basé sur {count} occurrences similaires).
+        """)
 
 # --- SIDEBAR ---
 st.sidebar.title("🔍 Filtres")
@@ -224,7 +231,7 @@ c4.markdown(f'<div class="metric-card"><div class="metric-label">Diff.</div><div
 st.markdown("---")
 
 # ==============================================================================
-# SECTION DUEL & PRÉDICTION (NOUVEAU)
+# SECTION DUEL & PRÉDICTION
 # ==============================================================================
 st.subheader("⚔️ Duel & Prédiction")
 
@@ -237,21 +244,18 @@ with col_sel_adv:
     match_location = st.radio("Lieu du match :", [f"Domicile ({selected_team})", f"Extérieur ({selected_team})"])
     is_home_game = "Domicile" in match_location
 
-# Calculs
+# Calculs H2H
 h2h_avg, nb_games = calculate_h2h_detailed(df_history_multi, selected_team, opponent)
 
-# Prédiction (Maintenant basée sur df_history_multi = toutes les saisons sélectionnées)
+# Prédiction
 p_home = selected_team if is_home_game else opponent
 p_away = opponent if is_home_game else selected_team
 pred_xg_home, pred_xg_away = predict_match_score(df_history_multi, p_home, p_away)
 
 with col_context:
     if pred_xg_home is not None:
-        # On arrondit pour le score affiché
         s_home = round(pred_xg_home)
         s_away = round(pred_xg_away)
-        
-        # Qui est qui pour l'affichage ?
         score_txt = f"{s_home} - {s_away}"
         
         st.markdown(f"""
@@ -267,20 +271,17 @@ with col_context:
     else:
         st.warning("Pas assez de données sur la période sélectionnée pour prédire ce match.")
 
-# STATS DÉTAILLÉES H2H
+# Stats H2H
 if h2h_avg:
     st.markdown(f"#### 📊 Historique vs {opponent} (Moyennes sur {nb_games} matchs)")
-    
     k1, k2, k3, k4, k5 = st.columns(5)
     
-    def h2h_card(col, label, val_for, val_against, unit=""):
+    def h2h_card(col, label, val_for, val_against):
         col.markdown(f"""
             <div class="metric-card" style="padding: 10px;">
                 <div class="metric-label">{label}</div>
                 <div style="font-size: 1.2rem; font-weight: bold; color: white;">
-                    <span style="color: #2ECC71;">{val_for:.1f}</span> 
-                    <span style="color: #888;">/</span> 
-                    <span style="color: #E74C3C;">{val_against:.1f}</span>
+                    <span style="color: #2ECC71;">{val_for:.1f}</span> <span style="color: #888;">/</span> <span style="color: #E74C3C;">{val_against:.1f}</span>
                 </div>
                 <div style="font-size: 0.7rem; color: #888;">Pour / Contre</div>
             </div>
@@ -289,11 +290,133 @@ if h2h_avg:
     h2h_card(k1, "Buts", h2h_avg['goals_for'], h2h_avg['goals_against'])
     h2h_card(k2, "Tirs Tentés", h2h_avg['shots_for'], h2h_avg['shots_against'])
     h2h_card(k3, "Tirs Cadrés", h2h_avg['target_for'], h2h_avg['target_against'])
-    h2h_card(k4, "Cartons Jaunes", h2h_avg['yellow_for'], 0) # On n'affiche que subis ici souvent
-    h2h_card(k5, "Cartons Rouges", h2h_avg['red_for'], 0)
+    h2h_card(k4, "Cartons Jaunes", h2h_avg['yellow_for'], 0)
+    h2h_card(k5, "Rouges", h2h_avg['red_for'], 0)
+else:
+    st.info(f"Aucun historique disponible entre {selected_team} et {opponent}.")
+
+st.markdown("---")
+
+# ==============================================================================
+# SECTION : PRÉDICTIONS JOURNÉE SUIVANTE (HYBRIDE LIVE/HISTORIQUE)
+# ==============================================================================
+import requests
+
+# --- MAPPING DES NOMS D'ÉQUIPES ---
+# L'API utilise des noms longs, notre dataset des noms courts. Il faut traduire.
+NAME_MAPPING = {
+    "Paris Saint Germain": "Paris SG",
+    "Olympique de Marseille": "Marseille",
+    "Olympique Lyonnais": "Lyon",
+    "AS Monaco": "Monaco",
+    "Lille OSC": "Lille",
+    "Stade Rennais": "Rennes",
+    "OGC Nice": "Nice",
+    "RC Lens": "Lens",
+    "Stade de Reims": "Reims",
+    "Strasbourg Alsace": "Strasbourg",
+    "Montpellier HSC": "Montpellier",
+    "FC Nantes": "Nantes",
+    "Toulouse FC": "Toulouse",
+    "Stade Brestois 29": "Brest",
+    "FC Lorient": "Lorient",
+    "Clermont Foot": "Clermont",
+    "Le Havre AC": "Le Havre",
+    "FC Metz": "Metz",
+    "AJ Auxerre": "Auxerre",
+    "Angers SCO": "Angers",
+    "AS Saint-Etienne": "Saint Etienne"
+}
+
+@st.cache_data(ttl=3600)
+def get_live_schedule():
+    """Récupère le calendrier officiel JSON gratuit"""
+    try:
+        # URL stable pour la Ligue 1 (source open data)
+        url = "https://fixturedownload.com/feed/json/ligue-1-2024" 
+        response = requests.get(url)
+        data = response.json()
+        df = pd.DataFrame(data)
+        
+        # Nettoyage
+        df['DateUtc'] = pd.to_datetime(df['DateUtc']).dt.tz_localize(None)
+        # On ne garde que les matchs futurs
+        future = df[df['DateUtc'] > pd.Timestamp.now()].sort_values('DateUtc')
+        return future
+    except Exception:
+        return pd.DataFrame()
+
+st.subheader("🔮 Prédictions : Prochains Matchs")
+
+# 1. Identifier si on est en mode "Replay" ou "Live"
+current_cutoff = pd.to_datetime(team_stats['match_timestamp']).replace(tzinfo=None)
+is_replay_mode = current_cutoff < (pd.Timestamp.now() - pd.Timedelta(days=7))
+
+# DATAFRAME DES FUTURS MATCHS
+next_round_matches = pd.DataFrame()
+source_origin = ""
+
+if is_replay_mode:
+    # MODE REPLAY : On regarde dans le fichier historique
+    source_origin = "Historique (Simulation)"
+    future_matches = df_matchs_focus[df_matchs_focus['date'] > current_cutoff].sort_values('date')
+    if not future_matches.empty:
+        next_match_date = future_matches.iloc[0]['date']
+        end_window = next_match_date + pd.Timedelta(days=5)
+        next_round_matches = future_matches[future_matches['date'] <= end_window]
+        # Standardisation des colonnes pour correspondre à la logique unique ci-dessous
+        next_round_matches = next_round_matches.rename(columns={'date': 'DateUtc', 'home_team': 'HomeTeam', 'away_team': 'AwayTeam'})
 
 else:
-    st.info(f"Aucun historique disponible entre {selected_team} et {opponent} sur les saisons sélectionnées.")
+    # MODE LIVE : On tape dans l'API
+    source_origin = "Calendrier Officiel Live"
+    df_api = get_live_schedule()
+    
+    if not df_api.empty:
+        # On prend la prochaine 'RoundNumber' disponible
+        next_round_num = df_api.iloc[0]['RoundNumber']
+        next_round_matches = df_api[df_api['RoundNumber'] == next_round_num]
+        
+        # TRADUCTION DES NOMS (CRITIQUE)
+        # On applique le mapping, si pas trouvé on garde le nom original
+        next_round_matches['HomeTeam'] = next_round_matches['HomeTeam'].apply(lambda x: NAME_MAPPING.get(x, x))
+        next_round_matches['AwayTeam'] = next_round_matches['AwayTeam'].apply(lambda x: NAME_MAPPING.get(x, x))
+
+# AFFICHAGE ET CALCULS
+if not next_round_matches.empty:
+    st.caption(f"Source des matchs : {source_origin}")
+    
+    predictions_data = []
+    for _, match in next_round_matches.iterrows():
+        dom = match['HomeTeam']
+        ext = match['AwayTeam']
+        date_m = match['DateUtc'].strftime('%d/%m %H:%M')
+        
+        # Prédiction avec nos données historiques BigQuery
+        xg_h, xg_a = predict_match_score(df_history_multi, dom, ext)
+        
+        score_display = "N/A"
+        xg_display = "Données insiffisantes"
+        
+        if xg_h is not None:
+            s_h = round(xg_h)
+            s_a = round(xg_a)
+            score_display = f"{int(s_h)} - {int(s_a)}"
+            xg_display = f"xG: {xg_h:.1f} - {xg_a:.1f}"
+            
+        predictions_data.append({
+            "Date": date_m,
+            "Domicile": dom,
+            "Score Prédit": score_display,
+            "Extérieur": ext,
+            "Détails": xg_display
+        })
+    
+    # Styliser le tableau
+    st.dataframe(pd.DataFrame(predictions_data).set_index("Date"), use_container_width=True)
+
+else:
+    st.info("Aucun match futur trouvé (Fin de saison ou trêve).")
 
 st.markdown("---")
 
