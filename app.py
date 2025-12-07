@@ -7,28 +7,55 @@ import plotly.express as px
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(page_title="Ligue 1 Data Center", layout="wide", page_icon="⚽")
 
-# --- STYLE CSS AVANCÉ (CORRIGÉ POUR LISIBILITÉ) ---
+# --- STYLE CSS AVANCÉ (CORRIGÉ POUR SIDEBAR) ---
 st.markdown("""
     <style>
-    /* 1. Fond général de l'application */
+    /* 1. Fond général de l'application (Partie centrale) */
     .stApp {
         background-color: #F4F4F4;
     }
     
-    /* 2. FORCE LA COULEUR DES TEXTES ET TITRES EN BLEU FONCÉ */
-    h1, h2, h3, h4, h5, h6, p, span, div {
-        color: #091C3E; 
+    /* ================================================================= */
+    /* ZONE PRINCIPALE (CENTRE) : TEXTE EN BLEU FONCÉ                   */
+    /* ================================================================= */
+    
+    /* On cible ".main" pour ne pas affecter la sidebar */
+    .main h1, .main h2, .main h3, .main h4, .main h5, .main h6, .main p, .main span, .main div, .main label {
+        color: #091C3E !important; 
     }
     
-    /* 3. Exception : Les textes à l'intérieur des cartes métriques personnalisées restent jaunes/blancs */
+    /* Exception : Les textes à l'intérieur des cartes métriques restent jaunes/blancs */
     .metric-card h3, .metric-card div, .metric-card span {
-        color: #DAE025 !important; /* Jaune pour les valeurs */
+        color: #DAE025 !important;
     }
     .metric-card .metric-label {
-        color: #E0E0E0 !important; /* Blanc cassé pour les étiquettes dans le bleu */
+        color: #E0E0E0 !important;
     }
 
-    /* 4. Style des cartes KPI (Bleu foncé) */
+    /* ================================================================= */
+    /* BARRE LATÉRALE (SIDEBAR) : TEXTE EN BLANC                        */
+    /* ================================================================= */
+    
+    /* Force le texte en blanc pour tous les éléments de la sidebar */
+    [data-testid="stSidebar"] h1, 
+    [data-testid="stSidebar"] h2, 
+    [data-testid="stSidebar"] h3, 
+    [data-testid="stSidebar"] p, 
+    [data-testid="stSidebar"] span, 
+    [data-testid="stSidebar"] div, 
+    [data-testid="stSidebar"] label {
+        color: #FFFFFF !important;
+    }
+    
+    /* Pour être sûr que les valeurs sélectionnées dans les listes soient lisibles */
+    [data-testid="stSidebar"] .stSelectbox div, [data-testid="stSidebar"] .stMultiSelect div {
+        color: #FFFFFF !important;
+    }
+
+    /* ================================================================= */
+    /* ÉLÉMENTS GRAPHIQUES (CARTES & BADGES)                            */
+    /* ================================================================= */
+    
     .metric-card {
         background-color: #091C3E;
         padding: 20px;
@@ -44,12 +71,10 @@ st.markdown("""
         color: #DAE025 !important;
     }
     
-    /* 5. Style des titres de section natifs Streamlit */
     .stHeadingContainer {
         color: #091C3E !important;
     }
 
-    /* 6. Pastilles de forme (V-N-D) */
     .form-badge {
         display: inline-block;
         width: 30px;
@@ -58,7 +83,7 @@ st.markdown("""
         border-radius: 50%;
         text-align: center;
         font-weight: bold;
-        color: white !important; /* Force le blanc dans les pastilles */
+        color: white !important;
         margin-right: 5px;
         font-size: 0.8rem;
     }
