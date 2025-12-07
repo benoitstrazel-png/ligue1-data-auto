@@ -7,21 +7,22 @@ import plotly.express as px
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(page_title="Ligue 1 Data Center", layout="wide", page_icon="⚽")
 
-# --- STYLE CSS AVANCÉ (CORRIGÉ POUR SIDEBAR) ---
+# --- STYLE CSS AVANCÉ (THEME SOMBRE / DARK MODE) ---
 st.markdown("""
     <style>
-    /* 1. Fond général de l'application (Partie centrale) */
+    /* 1. Fond général de l'application (Gris Foncé / Anthracite) */
     .stApp {
-        background-color: #F4F4F4;
+        background-color: #1A1C23;
     }
     
     /* ================================================================= */
-    /* ZONE PRINCIPALE (CENTRE) : TEXTE EN BLEU FONCÉ                   */
+    /* ZONE PRINCIPALE (CENTRE) : TEXTE EN BLANC                        */
     /* ================================================================= */
     
-    /* On cible ".main" pour ne pas affecter la sidebar */
+    /* On cible ".main" pour le contenu central */
+    /* Le texte devient BLANC pour être lisible sur le fond sombre */
     .main h1, .main h2, .main h3, .main h4, .main h5, .main h6, .main p, .main span, .main div, .main label {
-        color: #091C3E !important; 
+        color: #FFFFFF !important; 
     }
     
     /* Exception : Les textes à l'intérieur des cartes métriques restent jaunes/blancs */
@@ -33,7 +34,7 @@ st.markdown("""
     }
 
     /* ================================================================= */
-    /* BARRE LATÉRALE (SIDEBAR) : TEXTE EN BLANC                        */
+    /* BARRE LATÉRALE (SIDEBAR)                                         */
     /* ================================================================= */
     
     /* Force le texte en blanc pour tous les éléments de la sidebar */
@@ -56,14 +57,17 @@ st.markdown("""
     /* ÉLÉMENTS GRAPHIQUES (CARTES & BADGES)                            */
     /* ================================================================= */
     
+    /* Les cartes gardent le fond Bleu Marine pour le contraste */
     .metric-card {
         background-color: #091C3E;
         padding: 20px;
         border-radius: 12px;
         text-align: center;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3); /* Ombre plus marquée */
         margin-bottom: 10px;
+        border: 1px solid #DAE025; /* Petit bord jaune pour faire ressortir */
     }
+    
     .metric-value {
         font-size: 2rem;
         font-weight: 800;
@@ -71,10 +75,12 @@ st.markdown("""
         color: #DAE025 !important;
     }
     
+    /* Les titres de section natifs */
     .stHeadingContainer {
-        color: #091C3E !important;
+        color: #FFFFFF !important;
     }
 
+    /* Pastilles de forme */
     .form-badge {
         display: inline-block;
         width: 30px;
