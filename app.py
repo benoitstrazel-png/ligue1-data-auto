@@ -70,14 +70,14 @@ def load_season_data(selected_season):
     """Charge les données pour une saison spécifique"""
     client = get_db_client()
     
-    # 1. Classement (Tout l'historique de la saison pour pouvoir filtrer par journée ensuite)
+    # 1. Classement
     q_class = f"""
         SELECT * FROM `ligue1-data.historic_datasets.classement_live`
         WHERE saison = '{selected_season}'
         ORDER BY journee_team ASC
     """
     
-    # 2. Matchs (Pour les KPIs détaillés et le calendrier)
+    # 2. Matchs
     q_matchs = f"""
         SELECT * FROM `ligue1-data.historic_datasets.matchs_clean`
         WHERE season = '{selected_season}'
@@ -87,9 +87,14 @@ def load_season_data(selected_season):
     df_class = client.query(q_class).to_dataframe()
     df_matchs = client.query(q_matchs).to_dataframe()
     
-    # Conversion dates
-    df_class['match_timestamp'] = pd.to_datetime(df_class['match_timestamp'])
-    df_matchs['date'] = pd.to_datetime(df_matchs['date'])
+    # --- CORRECTION DATE & TIMEZONE ---
+    # On convertit tout en UTC d'abord pour uniformiser, puis on retire la timezone (.tz_localize(None))
+    # Cela rend les dates "naïves" et comparables entre elles sans erreur.
+    if not df_class.empty:
+        df_class['match_timestamp'] = pd.to_datetime(df_class['match_timestamp'], utc=True).dt.tz_localize(None)
+    
+    if not df_matchs.empty:
+        df_matchs['date'] = pd.to_datetime(df_matchs['date'], utc=True).dt.tz_localize(None)
     
     return df_class, df_matchs
 
@@ -251,22 +256,25 @@ kpi(col4, "Buts Pour", int(team_stats_t['total_bp']))
 # Forme (5 derniers matchs avant la date de la journée sélectionnée)
 with col5:
     st.markdown("##### 📅 Forme (5 derniers matchs)")
-    # Date butoir de la journée sélectionnée
-    cutoff_date = team_stats_t['match_timestamp']
+    # Date butoir de la journée sélectionnée (On s'assure qu'elle est sans timezone)
+    cutoff_date = pd.to_datetime(team_stats_t['match_timestamp']).replace(tzinfo=None)
     
     # On prend les matchs de l'équipe AVANT cette date
+    # Le filtrage devrait maintenant fonctionner sans erreur
     past_matches = df_matchs_full[
         ((df_matchs_full['home_team'] == selected_team) | (df_matchs_full['away_team'] == selected_team)) &
         (df_matchs_full['date'] <= cutoff_date) &
         (df_matchs_full['full_time_result'].notna())
-    ].sort_values('date', ascending=False).head(5) # Les 5 plus récents
+    ].sort_values('date', ascending=False).head(5) 
     
-    # Inverser pour avoir chronologique (Plus vieux -> Plus récent) pour l'affichage visuel
-    form_html = get_form_badges(past_matches.sort_values('date'), selected_team)
-    st.markdown(form_html, unsafe_allow_html=True)
-    st.caption("Survolez les pastilles pour voir l'adversaire")
-
-st.markdown("---")
+    # Affichage des badges
+    if not past_matches.empty:
+        # Inverser pour avoir chronologique (Plus vieux -> Plus récent)
+        form_html = get_form_badges(past_matches.sort_values('date'), selected_team)
+        st.markdown(form_html, unsafe_allow_html=True)
+        st.caption("Survolez les pastilles pour voir l'adversaire")
+    else:
+        st.write("Pas de matchs joués")
 
 # --- LIGNE 2 : ANALYSE STATISTIQUE AVANCÉE ---
 # On charge l'historique complet pour l'analyse "Bête noire"
