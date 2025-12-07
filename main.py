@@ -2,11 +2,17 @@ from google.cloud import bigquery
 import pandas as pd
 import os
 import json
+import unicodedata
 from google.oauth2 import service_account
 from pandas_gbq import to_gbq
 
-# --- TA FONCTION DE RÉCUPÉRATION (Code validé précédemment) ---
-# J'ai remis ton mapping et ta fonction ici pour que le script soit autonome
+# --- CONFIGURATION ---
+PROJECT_ID = os.environ["GCP_PROJECT_ID"]
+DATASET_ID = "historic_datasets"
+TABLE_MATCHS = f"{DATASET_ID}.matchs_clean"
+TABLE_REFS = f"{DATASET_ID}.referee_details" # Nouvelle table
+
+# --- MAPPING EXISTANT ---
 COLUMN_MAPPING = {
     'Div': 'division', 'Date': 'date', 'Time': 'time',
     'HomeTeam': 'home_team', 'AwayTeam': 'away_team', 'Referee': 'referee',
@@ -35,6 +41,18 @@ COLUMN_MAPPING = {
     'AvgAHH': 'avg_asian_handicap_home_odds', 'AvgAHA': 'avg_asian_handicap_away_odds',
 }
 
+def normalize_name(name):
+    """Nettoie le nom des arbitres (enlève accents, initiales prénoms, majuscules)"""
+    if not isinstance(name, str): return "INCONNU"
+    # Enlève les accents
+    name = ''.join(c for c in unicodedata.normalize('NFD', name) if unicodedata.category(c) != 'Mn')
+    # Majuscules
+    name = name.upper().strip()
+    # Gestion des initiales (ex: "C. TURPIN" -> "TURPIN")
+    if ". " in name:
+        name = name.split(". ")[1]
+    return name
+
 def get_ligue1_data(start_year=1993, end_year=2025):
     all_seasons_dfs = []
     valid_cols = list(set(COLUMN_MAPPING.values())) + ['season', 'division']
@@ -49,10 +67,10 @@ def get_ligue1_data(start_year=1993, end_year=2025):
         try:
             print(f"Chargement {season_label}...")
             df = pd.read_csv(url, encoding='latin-1', on_bad_lines='skip')
-            df = df.loc[:, ~df.columns.duplicated()] # Fix 1
+            df = df.loc[:, ~df.columns.duplicated()]
             df = df.assign(season=season_label, division='Ligue 1')
             df = df.rename(columns=COLUMN_MAPPING)
-            df = df.loc[:, ~df.columns.duplicated()] # Fix 2
+            df = df.loc[:, ~df.columns.duplicated()]
             cols_to_keep = [c for c in df.columns if c in valid_cols]
             df = df[cols_to_keep]
             
@@ -70,112 +88,91 @@ def get_ligue1_data(start_year=1993, end_year=2025):
         dates_v2 = pd.to_datetime(full_df.loc[mask_nan, 'date'], format='%d/%m/%Y', errors='coerce')
         full_df['date'] = dates_v1.fillna(dates_v2)
         full_df = full_df.dropna(subset=['date'])
-        # Conversion explicite pour BigQuery (Date uniquement, pas datetime)
         full_df['date'] = full_df['date'].dt.date 
         return full_df
     else:
         return pd.DataFrame()
 
-# --- EXPORT VERS BIGQUERY ---
-def main():
-    # 1. Récupération des données
-    print("🚀 Démarrage du scraping...")
-    df = get_ligue1_data(start_year=1993, end_year=2025)
+def process_referee_table(df):
+    """Crée la table référentiel des arbitres avec dates et stats"""
+    print("🔨 Création de la table Arbitres...")
     
-    if df.empty:
-        print("❌ Aucune donnée récupérée.")
-        return
+    # On s'assure d'avoir les colonnes nécessaires
+    if 'referee' not in df.columns:
+        print("⚠️ Pas de colonne 'referee' trouvée.")
+        return pd.DataFrame()
 
-    print(f"✅ {len(df)} lignes récupérées. Préparation de l'envoi vers BigQuery...")
+    # Sélection des colonnes utiles
+    cols = ['season', 'date', 'time', 'home_team', 'away_team', 'referee']
+    # On garde aussi les stats disciplinaires si dispos pour l'historique
+    stats_cols = ['home_yellow_cards', 'away_yellow_cards', 'home_red_cards', 'away_red_cards']
+    
+    available_cols = [c for c in cols + stats_cols if c in df.columns]
+    df_refs = df[available_cols].copy()
+    
+    # Normalisation
+    df_refs['referee_clean'] = df_refs['referee'].apply(normalize_name)
+    
+    # Calcul de la journée (approximatif basé sur l'ordre chronologique par équipe)
+    # On trie par date
+    df_refs = df_refs.sort_values('date')
+    # On numérote les matchs par saison et par équipe
+    df_refs['match_rank_home'] = df_refs.groupby(['season', 'home_team']).cumcount() + 1
+    # On prend une moyenne pour estimer la "Journée" globale du championnat
+    df_refs['journee'] = df_refs.groupby('season')['date'].rank(method='dense').astype(int)
 
-    # 2. Configuration BigQuery via GitHub Secrets
-    # On récupère la clé JSON depuis la variable d'environnement (configurée plus tard dans GitHub)
-    service_account_info = json.loads(os.environ["GCP_SA_KEY"])
-    project_id = os.environ["GCP_PROJECT_ID"]
-    dataset_table = "historic_datasets.matchs_clean" # <--- ADAPTE AVEC TON DATASET.TABLE
-
-    credentials = service_account.Credentials.from_service_account_info(service_account_info)
-
-    # 3. Envoi (Mode 'replace' pour tout écraser et remettre à jour proprement chaque lundi)
-    try:
-        to_gbq(
-            df,
-            destination_table=dataset_table,
-            project_id=project_id,
-            credentials=credentials,
-            if_exists='replace', # Ecrase la table existante
-            chunksize=None # Automatique
-        )
-        print("🎉 Données exportées avec succès vers BigQuery !")
-    except Exception as e:
-        print(f"❌ Erreur lors de l'export BigQuery : {e}")
-
-if __name__ == "__main__":
-    main()
-
-# ... (Ton code existant) ...
+    # Création du timestamp précis
+    # Si 'time' est vide, on met 20:00 par défaut
+    df_refs['time'] = df_refs['time'].fillna('20:00')
+    # On convertit en string pour BigQuery (DATETIME ou TIMESTAMP)
+    df_refs['full_date'] = pd.to_datetime(df_refs['date'].astype(str) + ' ' + df_refs['time'].astype(str), errors='coerce')
+    
+    return df_refs
 
 def update_standings_table(credentials, project_id):
-    """
-    Lit le fichier SQL et exécute la requête dans BigQuery
-    pour mettre à jour la table de classement.
-    """
-    print("🔄 Mise à jour de la table classement_live...")
-    
-    # On initialise le client BigQuery
+    """Exécute le SQL pour la table classement (code existant)"""
+    from google.cloud import bigquery
+    print("🔄 Mise à jour classement SQL...")
     client = bigquery.Client(credentials=credentials, project=project_id)
-    
-    # On lit le fichier SQL
     try:
         with open("update_classement.sql", "r") as file:
             sql_query = file.read()
-            
-        # On exécute la requête
         query_job = client.query(sql_query)
-        query_job.result()  # On attend que la requête soit finie
-        print("✅ Table classement_live mise à jour avec succès !")
-        
-    except FileNotFoundError:
-        print("❌ Erreur : Le fichier update_classement.sql est introuvable.")
+        query_job.result()
+        print("✅ Classement mis à jour.")
     except Exception as e:
-        print(f"❌ Erreur lors de la mise à jour du classement : {e}")
+        print(f"❌ Erreur SQL : {e}")
 
-# --- EXPORT VERS BIGQUERY ---
+# --- FONCTION PRINCIPALE ---
 def main():
-    # 1. Récupération des données
-    print("🚀 Démarrage du scraping...")
-    df = get_ligue1_data(start_year=1993, end_year=2025)
+    print("🚀 Démarrage ETL...")
     
-    if df.empty:
-        print("❌ Aucune donnée récupérée.")
-        return
+    # 1. Get Data
+    df = get_ligue1_data(start_year=1993, end_year=2025)
+    if df.empty: return
 
-    print(f"✅ {len(df)} lignes récupérées. Préparation de l'envoi vers BigQuery...")
-
-    # 2. Configuration BigQuery
+    # 2. Auth
     service_account_info = json.loads(os.environ["GCP_SA_KEY"])
-    project_id = os.environ["GCP_PROJECT_ID"]
-    dataset_table = "historic_datasets.matchs_clean" # Adapte si besoin
-
     credentials = service_account.Credentials.from_service_account_info(service_account_info)
 
-    # 3. Envoi des données brutes
+    # 3. Export MATCHS CLEAN (Table Principale)
     try:
-        to_gbq(
-            df,
-            destination_table=dataset_table,
-            project_id=project_id,
-            credentials=credentials,
-            if_exists='replace',
-            chunksize=None
-        )
-        print("🎉 Données exportées avec succès vers BigQuery !")
-        
-        # 4. LANCEMENT DU CALCUL SQL (C'est ici qu'on chaîne l'étape)
-        update_standings_table(credentials, project_id)
-        
+        to_gbq(df, TABLE_MATCHS, project_id=PROJECT_ID, credentials=credentials, if_exists='replace', chunksize=None)
+        print(f"✅ Table {TABLE_MATCHS} exportée.")
     except Exception as e:
-        print(f"❌ Erreur critique : {e}")
+        print(f"❌ Erreur export Matchs : {e}")
+
+    # 4. Export REFEREES (Nouvelle Table)
+    df_refs = process_referee_table(df)
+    if not df_refs.empty:
+        try:
+            to_gbq(df_refs, TABLE_REFS, project_id=PROJECT_ID, credentials=credentials, if_exists='replace', chunksize=None)
+            print(f"✅ Table {TABLE_REFS} exportée.")
+        except Exception as e:
+            print(f"❌ Erreur export Arbitres : {e}")
+
+    # 5. Update SQL Derived Tables
+    update_standings_table(credentials, PROJECT_ID)
 
 if __name__ == "__main__":
     main()
