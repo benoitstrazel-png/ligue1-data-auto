@@ -2,3 +2,6 @@
 __pycache__/
 .ipynb_checkpoints
 .envlsforpwd
+.streamlit/secrets.toml
+# ou plus simplement
+*.toml
