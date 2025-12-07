@@ -79,14 +79,16 @@ def get_db_client():
 @st.cache_data(ttl=3600)
 def get_seasons_list():
     client = get_db_client()
-    query = "SELECT DISTINCT season FROM `ligue1-data.historic_datasets.matchs_clean` ORDER BY season DESC"
+    # On utilise client.project pour avoir le bon ID projet automatiquement
+    query = f"SELECT DISTINCT season FROM `{client.project}.historic_datasets.matchs_clean` ORDER BY season DESC"
     return client.query(query).to_dataframe()['season'].tolist()
 
 @st.cache_data(ttl=600)
 def load_focus_season(season_name):
     client = get_db_client()
-    q_class = f"SELECT * FROM `ligue1-data.historic_datasets.classement_live` WHERE saison = '{season_name}' ORDER BY journee_team ASC"
-    q_matchs = f"SELECT * FROM `ligue1-data.historic_datasets.matchs_clean` WHERE season = '{season_name}' ORDER BY date ASC"
+    # Injection dynamique du Project ID
+    q_class = f"SELECT * FROM `{client.project}.historic_datasets.classement_live` WHERE saison = '{season_name}' ORDER BY journee_team ASC"
+    q_matchs = f"SELECT * FROM `{client.project}.historic_datasets.matchs_clean` WHERE season = '{season_name}' ORDER BY date ASC"
     
     df_class = client.query(q_class).to_dataframe()
     df_matchs = client.query(q_matchs).to_dataframe()
@@ -102,39 +104,38 @@ def load_focus_season(season_name):
 def load_rank_vs_rank_history():
     """
     Charge l'historique complet pour l'analyse '2e vs 17e'.
-    Récupère TOUS les classements et TOUS les matchs pour construire la matrice.
     """
     client = get_db_client()
+    project_id = client.project # Récupère l'ID depuis vos secrets
     
-    # 1. On charge l'essentiel du classement historique
-    q_all_class = """
+    # 1. On charge le classement (Project ID dynamique)
+    q_all_class = f"""
         SELECT season, journee_team, team, total_points 
-        FROM `ligue1-data.historic_datasets.classement_live`
+        FROM `{project_id}.historic_datasets.classement_live`
     """
     df_ranks = client.query(q_all_class).to_dataframe()
     
-    # 2. On calcule le rang pour chaque (Saison, Journée)
-    # Astuce : On groupe par saison et journée, puis on rank par points
+    if df_ranks.empty: return pd.DataFrame() # Sécurité si table vide
+
+    # 2. On calcule le rang
     df_ranks['rank'] = df_ranks.groupby(['season', 'journee_team'])['total_points'].rank(ascending=False, method='min')
     
-    # 3. On charge les résultats de matchs
-    q_all_matchs = """
+    # 3. On charge les résultats (Project ID dynamique)
+    q_all_matchs = f"""
         SELECT season, home_team, away_team, full_time_result, full_time_home_goals, full_time_away_goals, date
-        FROM `ligue1-data.historic_datasets.matchs_clean`
+        FROM `{project_id}.historic_datasets.matchs_clean`
         ORDER BY date
     """
     df_matchs = client.query(q_all_matchs).to_dataframe()
     
-    # 4. On ajoute une colonne 'journee' approximative aux matchs (N-ième match joué)
+    # 4. Traitement Python (Identique)
     df_matchs['home_journee'] = df_matchs.groupby(['season', 'home_team']).cumcount() + 1
     df_matchs['away_journee'] = df_matchs.groupby(['season', 'away_team']).cumcount() + 1
     
-    # 5. Jointure : Pour chaque match, quel était le classement AVANT le match ?
-    # On prend le rang à la journée J-1
     df_matchs['home_prev_j'] = df_matchs['home_journee'] - 1
     df_matchs['away_prev_j'] = df_matchs['away_journee'] - 1
     
-    # Merge Home Rank
+    # Merges
     df_merged = pd.merge(
         df_matchs, df_ranks, 
         left_on=['season', 'home_team', 'home_prev_j'], 
@@ -142,7 +143,6 @@ def load_rank_vs_rank_history():
         how='inner'
     ).rename(columns={'rank': 'home_rank'}).drop(columns=['team', 'journee_team', 'total_points'])
     
-    # Merge Away Rank
     df_merged = pd.merge(
         df_merged, df_ranks, 
         left_on=['season', 'away_team', 'away_prev_j'], 
@@ -151,6 +151,17 @@ def load_rank_vs_rank_history():
     ).rename(columns={'rank': 'away_rank'}).drop(columns=['team', 'journee_team', 'total_points'])
     
     return df_merged
+
+@st.cache_data(ttl=600)
+def load_multi_season_stats(seasons_list):
+    client = get_db_client()
+    seasons_str = "', '".join(seasons_list)
+    # Injection dynamique ici aussi
+    query = f"SELECT * FROM `{client.project}.historic_datasets.matchs_clean` WHERE season IN ('{seasons_str}')"
+    df = client.query(query).to_dataframe()
+    if not df.empty:
+        df['date'] = pd.to_datetime(df['date'], utc=True).dt.tz_localize(None)
+    return df
 
 @st.cache_data(ttl=600)
 def load_multi_season_stats(seasons_list):
