@@ -151,25 +151,27 @@ def calculate_h2h_detailed(df, team, opponent):
     avg_stats = {k: (np.mean(v) if v else 0) for k, v in stats.items()}
     return avg_stats, len(df_h2h)
 
-def predict_match_score(df_season, team_home, team_away):
+def predict_match_score(df_history, team_home, team_away):
     """
     Prédit le score basé sur la Loi de Poisson
-    en utilisant les forces d'attaque et de défense de la saison choisie.
+    en utilisant les forces d'attaque et de défense sur L'ENSEMBLE de l'historique fourni.
     """
-    # 1. Moyennes de la ligue
-    avg_home_goals = df_season['full_time_home_goals'].mean()
-    avg_away_goals = df_season['full_time_away_goals'].mean()
+    if df_history.empty: return None, None
+
+    # 1. Moyennes globales sur la période
+    avg_home_goals = df_history['full_time_home_goals'].mean()
+    avg_away_goals = df_history['full_time_away_goals'].mean()
     
     # 2. Stats Domicile (Team Home)
-    home_matches = df_season[df_season['home_team'] == team_home]
-    if home_matches.empty: return None # Pas de données
+    home_matches = df_history[df_history['home_team'] == team_home]
+    if home_matches.empty: return None, None # L'équipe n'a jamais joué à domicile sur cette période
     
     attack_home = home_matches['full_time_home_goals'].mean() / avg_home_goals
     defense_home = home_matches['full_time_away_goals'].mean() / avg_away_goals
     
     # 3. Stats Extérieur (Team Away)
-    away_matches = df_season[df_season['away_team'] == team_away]
-    if away_matches.empty: return None
+    away_matches = df_history[df_history['away_team'] == team_away]
+    if away_matches.empty: return None, None # L'équipe n'a jamais joué à l'extérieur sur cette période
     
     attack_away = away_matches['full_time_away_goals'].mean() / avg_away_goals
     defense_away = away_matches['full_time_home_goals'].mean() / avg_home_goals
@@ -238,10 +240,10 @@ with col_sel_adv:
 # Calculs
 h2h_avg, nb_games = calculate_h2h_detailed(df_history_multi, selected_team, opponent)
 
-# Prédiction (Basée sur la saison FOCUS uniquement pour être pertinente sur la forme actuelle)
+# Prédiction (Maintenant basée sur df_history_multi = toutes les saisons sélectionnées)
 p_home = selected_team if is_home_game else opponent
 p_away = opponent if is_home_game else selected_team
-pred_xg_home, pred_xg_away = predict_match_score(df_matchs_focus, p_home, p_away)
+pred_xg_home, pred_xg_away = predict_match_score(df_history_multi, p_home, p_away)
 
 with col_context:
     if pred_xg_home is not None:
@@ -257,13 +259,13 @@ with col_context:
                 <div style="color: #DAE025; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px;">Prédiction IA (Poisson)</div>
                 <div class="score-display">{p_home} {score_txt} {p_away}</div>
                 <div style="color: #AAAAAA; font-size: 0.8rem; margin-top: 10px;">
-                    Basé sur la forme offensive/défensive de la saison {focus_season}
-                    (xG: {pred_xg_home:.2f} - {pred_xg_away:.2f})
+                    Basé sur la performance moyenne analysée sur {len(selected_seasons)} saison(s)
+                    <br>(xG: {pred_xg_home:.2f} - {pred_xg_away:.2f})
                 </div>
             </div>
         """, unsafe_allow_html=True)
     else:
-        st.warning("Pas assez de données cette saison pour prédire.")
+        st.warning("Pas assez de données sur la période sélectionnée pour prédire ce match.")
 
 # STATS DÉTAILLÉES H2H
 if h2h_avg:
