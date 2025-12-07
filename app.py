@@ -33,28 +33,27 @@ st.markdown("""
 # --- CONNEXION BIGQUERY ---
 @st.cache_resource
 def get_db_client():
-    # Récupération des secrets (Configurés dans .streamlit/secrets.toml ou sur le Cloud)
+    # Récupération des secrets
     key_dict = st.secrets["gcp_service_account"]
     creds = service_account.Credentials.from_service_account_info(key_dict)
     client = bigquery.Client(credentials=creds, project=key_dict["project_id"])
     return client
 
 # --- CHARGEMENT DES DONNÉES ---
-@st.cache_data(ttl=600) # Mise en cache pour 10 minutes pour éviter de payer trop cher BQ
+@st.cache_data(ttl=600)
 def load_data():
     client = get_db_client()
     
-    # 1. Récupérer le classement LIVE (Ta vue SQL)
-    # On prend la dernière journée disponible pour chaque équipe
+    # 1. Récupérer le classement LIVE
     query_classement = """
         SELECT * FROM `ligue1-data.historic_datasets.classement_live`
-        WHERE saison = '2024-2025' -- Adapte dynamiquement si besoin
+        WHERE saison = '2024-2025'
         QUALIFY ROW_NUMBER() OVER(PARTITION BY equipe ORDER BY match_timestamp DESC) = 1
         ORDER BY total_points DESC, total_diff DESC
     """
     df_classement = client.query(query_classement).to_dataframe()
     
-    # 2. Récupérer l'historique des matchs pour les courbes
+    # 2. Récupérer l'historique
     query_matchs = """
         SELECT * FROM `ligue1-data.historic_datasets.classement_live`
         WHERE saison = '2024-2025'
@@ -67,7 +66,7 @@ def load_data():
 # --- INTERFACE ---
 try:
     df_classement, df_history = load_data()
-    st.sidebar.success("Données connectées à BigQuery 🟢")
+    # st.sidebar.success("Données connectées à BigQuery 🟢") # Optionnel : masquer pour plus de propreté
 except Exception as e:
     st.error(f"Erreur de connexion BigQuery : {e}")
     st.stop()
@@ -97,18 +96,20 @@ def kpi_card(col, label, value):
         </div>
     """, unsafe_allow_html=True)
 
+# Affichage des KPIs
 kpi_card(col1, "Classement Actuel", f"{rang_actuel}e")
-kpi_card(col2, "Points", stats_equipe['total_points'])
-kpi_card(col3, "Buts Marqués", stats_equipe['total_bp'])
-kpi_card(col4, "Diff. de Buts", f"{stats_equipe['total_diff']:+d}") # Le :+d force le signe + ou -
+kpi_card(col2, "Points", int(stats_equipe['total_points'])) # Conversion int
+kpi_card(col3, "Buts Marqués", int(stats_equipe['total_bp'])) # Conversion int
+
+# --- LA CORRECTION EST ICI ---
+# On convertit en int() pour que le format :+d fonctionne sur le nombre à virgule
+kpi_card(col4, "Diff. de Buts", f"{int(stats_equipe['total_diff']):+d}")
 
 # --- GRAPHIQUES ---
 st.markdown("### 📈 Évolution de la saison")
 
-# On filtre l'historique pour l'équipe choisie
 history_team = df_history[df_history['equipe'] == equipe_choisie]
 
-# Graphique interactif avec Plotly
 fig = px.line(history_team, x='journee_team', y='total_points', 
               title=f"Trajectoire de points - {equipe_choisie}",
               markers=True,
