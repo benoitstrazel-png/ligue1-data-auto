@@ -104,23 +104,31 @@ def load_focus_season(season_name):
 def load_rank_vs_rank_history():
     """
     Charge l'historique complet pour l'analyse '2e vs 17e'.
+    Récupère TOUS les classements et TOUS les matchs pour construire la matrice.
     """
     client = get_db_client()
-    project_id = client.project # Récupère l'ID depuis vos secrets
+    project_id = client.project 
     
     # 1. On charge le classement (Project ID dynamique)
+    # CORRECTION ICI : On renomme "saison" -> "season" et "equipe" -> "team" 
+    # pour que le reste du code Python (les merges) fonctionne sans modif.
     q_all_class = f"""
-        SELECT season, journee_team, team, total_points 
+        SELECT saison as season, journee_team, equipe as team, total_points 
         FROM `{project_id}.historic_datasets.classement_live`
     """
-    df_ranks = client.query(q_all_class).to_dataframe()
     
-    if df_ranks.empty: return pd.DataFrame() # Sécurité si table vide
+    try:
+        df_ranks = client.query(q_all_class).to_dataframe()
+    except Exception as e:
+        # Si la table n'existe pas ou erreur, on retourne vide pour ne pas crasher
+        return pd.DataFrame()
+    
+    if df_ranks.empty: return pd.DataFrame()
 
-    # 2. On calcule le rang
+    # 2. On calcule le rang pour chaque (Saison, Journée)
     df_ranks['rank'] = df_ranks.groupby(['season', 'journee_team'])['total_points'].rank(ascending=False, method='min')
     
-    # 3. On charge les résultats (Project ID dynamique)
+    # 3. On charge les résultats de matchs
     q_all_matchs = f"""
         SELECT season, home_team, away_team, full_time_result, full_time_home_goals, full_time_away_goals, date
         FROM `{project_id}.historic_datasets.matchs_clean`
@@ -128,14 +136,15 @@ def load_rank_vs_rank_history():
     """
     df_matchs = client.query(q_all_matchs).to_dataframe()
     
-    # 4. Traitement Python (Identique)
+    # 4. Traitement Python
     df_matchs['home_journee'] = df_matchs.groupby(['season', 'home_team']).cumcount() + 1
     df_matchs['away_journee'] = df_matchs.groupby(['season', 'away_team']).cumcount() + 1
     
     df_matchs['home_prev_j'] = df_matchs['home_journee'] - 1
     df_matchs['away_prev_j'] = df_matchs['away_journee'] - 1
     
-    # Merges
+    # Merge Home Rank
+    # Maintenant ça marche car df_ranks a bien une colonne 'season' (grâce à l'alias SQL)
     df_merged = pd.merge(
         df_matchs, df_ranks, 
         left_on=['season', 'home_team', 'home_prev_j'], 
@@ -143,6 +152,7 @@ def load_rank_vs_rank_history():
         how='inner'
     ).rename(columns={'rank': 'home_rank'}).drop(columns=['team', 'journee_team', 'total_points'])
     
+    # Merge Away Rank
     df_merged = pd.merge(
         df_merged, df_ranks, 
         left_on=['season', 'away_team', 'away_prev_j'], 
