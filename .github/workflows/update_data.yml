@@ -22,7 +22,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pandas pandas-gbq google-oauth2 pyarrow
+          pip install pandas pandas-gbq google-auth pyarrow
 
       - name: Run ETL Script
         env:
