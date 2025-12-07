@@ -79,14 +79,12 @@ def get_db_client():
 @st.cache_data(ttl=3600)
 def get_seasons_list():
     client = get_db_client()
-    # On utilise client.project pour avoir le bon ID projet automatiquement
     query = f"SELECT DISTINCT season FROM `{client.project}.historic_datasets.matchs_clean` ORDER BY season DESC"
     return client.query(query).to_dataframe()['season'].tolist()
 
 @st.cache_data(ttl=600)
 def load_focus_season(season_name):
     client = get_db_client()
-    # Injection dynamique du Project ID
     q_class = f"SELECT * FROM `{client.project}.historic_datasets.classement_live` WHERE saison = '{season_name}' ORDER BY journee_team ASC"
     q_matchs = f"SELECT * FROM `{client.project}.historic_datasets.matchs_clean` WHERE season = '{season_name}' ORDER BY date ASC"
     
@@ -104,14 +102,14 @@ def load_focus_season(season_name):
 def load_rank_vs_rank_history():
     """
     Charge l'historique complet pour l'analyse '2e vs 17e'.
-    Récupère TOUS les classements et TOUS les matchs pour construire la matrice.
+    CORRECTION ERREUR COLUMN NAME : On utilise des alias SQL.
     """
     client = get_db_client()
     project_id = client.project 
     
-    # 1. On charge le classement (Project ID dynamique)
-    # CORRECTION ICI : On renomme "saison" -> "season" et "equipe" -> "team" 
-    # pour que le reste du code Python (les merges) fonctionne sans modif.
+    # --- FIX CRITIQUE ICI ---
+    # On renomme 'saison' en 'season' et 'equipe' en 'team' directement dans la requête
+    # pour matcher les noms attendus par le code Python plus bas.
     q_all_class = f"""
         SELECT saison as season, journee_team, equipe as team, total_points 
         FROM `{project_id}.historic_datasets.classement_live`
@@ -119,16 +117,15 @@ def load_rank_vs_rank_history():
     
     try:
         df_ranks = client.query(q_all_class).to_dataframe()
-    except Exception as e:
-        # Si la table n'existe pas ou erreur, on retourne vide pour ne pas crasher
-        return pd.DataFrame()
+    except Exception:
+        return pd.DataFrame() # Retourne vide si erreur table introuvable
     
     if df_ranks.empty: return pd.DataFrame()
 
-    # 2. On calcule le rang pour chaque (Saison, Journée)
+    # Calcul du rang
     df_ranks['rank'] = df_ranks.groupby(['season', 'journee_team'])['total_points'].rank(ascending=False, method='min')
     
-    # 3. On charge les résultats de matchs
+    # Chargement Matchs
     q_all_matchs = f"""
         SELECT season, home_team, away_team, full_time_result, full_time_home_goals, full_time_away_goals, date
         FROM `{project_id}.historic_datasets.matchs_clean`
@@ -136,15 +133,13 @@ def load_rank_vs_rank_history():
     """
     df_matchs = client.query(q_all_matchs).to_dataframe()
     
-    # 4. Traitement Python
+    # Traitement Python
     df_matchs['home_journee'] = df_matchs.groupby(['season', 'home_team']).cumcount() + 1
     df_matchs['away_journee'] = df_matchs.groupby(['season', 'away_team']).cumcount() + 1
-    
     df_matchs['home_prev_j'] = df_matchs['home_journee'] - 1
     df_matchs['away_prev_j'] = df_matchs['away_journee'] - 1
     
-    # Merge Home Rank
-    # Maintenant ça marche car df_ranks a bien une colonne 'season' (grâce à l'alias SQL)
+    # Merges (Fonctionne maintenant grâce aux alias SQL)
     df_merged = pd.merge(
         df_matchs, df_ranks, 
         left_on=['season', 'home_team', 'home_prev_j'], 
@@ -152,7 +147,6 @@ def load_rank_vs_rank_history():
         how='inner'
     ).rename(columns={'rank': 'home_rank'}).drop(columns=['team', 'journee_team', 'total_points'])
     
-    # Merge Away Rank
     df_merged = pd.merge(
         df_merged, df_ranks, 
         left_on=['season', 'away_team', 'away_prev_j'], 
@@ -166,18 +160,7 @@ def load_rank_vs_rank_history():
 def load_multi_season_stats(seasons_list):
     client = get_db_client()
     seasons_str = "', '".join(seasons_list)
-    # Injection dynamique ici aussi
     query = f"SELECT * FROM `{client.project}.historic_datasets.matchs_clean` WHERE season IN ('{seasons_str}')"
-    df = client.query(query).to_dataframe()
-    if not df.empty:
-        df['date'] = pd.to_datetime(df['date'], utc=True).dt.tz_localize(None)
-    return df
-
-@st.cache_data(ttl=600)
-def load_multi_season_stats(seasons_list):
-    client = get_db_client()
-    seasons_str = "', '".join(seasons_list)
-    query = f"SELECT * FROM `ligue1-data.historic_datasets.matchs_clean` WHERE season IN ('{seasons_str}')"
     df = client.query(query).to_dataframe()
     if not df.empty:
         df['date'] = pd.to_datetime(df['date'], utc=True).dt.tz_localize(None)
@@ -199,48 +182,35 @@ def get_live_schedule():
 # --- LOGIQUE MÉTIER AVANCÉE ---
 
 def get_rank_vs_rank_stats(df_history_ranks, r_home, r_away, tolerance=3):
-    """
-    Analyse l'historique : Qui gagne quand le Xème reçoit le Yème ?
-    Utilise une tolérance (ex: +/- 3 places) pour avoir assez de données.
-    """
-    # Filtre : On cherche les matchs où HomeRank est proche de r_home et AwayRank proche de r_away
+    """Analyse l'historique : Qui gagne quand le Xème reçoit le Yème ?"""
+    if df_history_ranks.empty: return None
+    
     mask = (
         (df_history_ranks['home_rank'] >= r_home - tolerance) & 
         (df_history_ranks['home_rank'] <= r_home + tolerance) &
         (df_history_ranks['away_rank'] >= r_away - tolerance) & 
         (df_history_ranks['away_rank'] <= r_away + tolerance)
     )
-    
     subset = df_history_ranks[mask]
     n = len(subset)
-    
-    if n < 10: return None # Pas assez de données fiables
+    if n < 10: return None
     
     wins = len(subset[subset['full_time_result'] == 'H'])
     draws = len(subset[subset['full_time_result'] == 'D'])
     losses = len(subset[subset['full_time_result'] == 'A'])
     
     return {
-        'win_pct': (wins/n)*100,
-        'draw_pct': (draws/n)*100,
-        'loss_pct': (losses/n)*100,
-        'sample': n,
-        'label': f"Top {r_home} vs Top {r_away}" # Simplifié
+        'win_pct': (wins/n)*100, 'draw_pct': (draws/n)*100, 'loss_pct': (losses/n)*100,
+        'sample': n, 'label': f"Top {r_home} vs Top {r_away}"
     }
 
 def predict_hybrid_score(df_history, team_home, team_away, rank_stats=None):
-    """
-    Prédiction Hybride : Loi de Poisson (Force intrinsèque) + Historique Classement (Tendance).
-    """
-    # 1. Prédiction Poisson Standard (xG)
     if df_history.empty: return None, None, None
-    
     avg_home = df_history['full_time_home_goals'].mean()
     avg_away = df_history['full_time_away_goals'].mean()
     
     home_m = df_history[df_history['home_team'] == team_home]
     away_m = df_history[df_history['away_team'] == team_away]
-    
     if home_m.empty or away_m.empty: return None, None, None
     
     att_h = home_m['full_time_home_goals'].mean() / avg_home
@@ -251,23 +221,15 @@ def predict_hybrid_score(df_history, team_home, team_away, rank_stats=None):
     xg_h = att_h * def_a * avg_home
     xg_a = att_a * def_h * avg_away
     
-    # 2. Ajustement par l'historique des Rangs (Si disponible)
-    # Si l'historique dit que le favori gagne à 80%, on booste légèrement son xG
     confidence_msg = "Basé sur la forme (Poisson)"
-    
     if rank_stats:
-        # Probabilités implicites de Poisson (approximatives pour l'exemple)
-        # Si rank_stats donne une proba de victoire > 60%, on bonusse
         if rank_stats['win_pct'] > 60:
-            xg_h *= 1.15 # Bonus domicile
-            confidence_msg = "Ajusté par l'historique du classement (Fav. Domicile)"
+            xg_h *= 1.15; confidence_msg = "Ajusté par l'historique du classement (Fav. Domicile)"
         elif rank_stats['loss_pct'] > 60:
-            xg_a *= 1.15 # Bonus extérieur
-            confidence_msg = "Ajusté par l'historique du classement (Fav. Extérieur)"
+            xg_a *= 1.15; confidence_msg = "Ajusté par l'historique du classement (Fav. Extérieur)"
             
     return xg_h, xg_a, confidence_msg
 
-# Fonctions utilitaires existantes...
 def calculate_h2h_detailed(df, team, opponent):
     mask = ((df['home_team'] == team) & (df['away_team'] == opponent)) | \
            ((df['home_team'] == opponent) & (df['away_team'] == team))
@@ -293,10 +255,7 @@ def calculate_advanced_kpis(df, team):
     df_team = df[(df['home_team'] == team) | (df['away_team'] == team)].copy()
     if df_team.empty: return {}
     nb_matchs = len(df_team)
-    clean_sheets = 0
-    failed_to_score = 0
-    balance = 0
-    total_shots_target = 0; total_goals = 0
+    clean_sheets = 0; failed_to_score = 0; balance = 0; total_shots_target = 0; total_goals = 0
     for _, row in df_team.iterrows():
         is_home = row['home_team'] == team
         goals_for = row['full_time_home_goals'] if is_home else row['full_time_away_goals']
@@ -383,7 +342,7 @@ st.sidebar.markdown(f"**Saison Focus :** {focus_season}")
 # LOAD DATA
 df_class_focus, df_matchs_focus = load_focus_season(focus_season)
 df_history_multi = load_multi_season_stats(selected_seasons)
-df_ranks_history = load_rank_vs_rank_history() # New Reference Data
+df_ranks_history = load_rank_vs_rank_history() # Chargement sécurisé avec alias
 
 teams = sorted(df_class_focus['equipe'].unique())
 selected_team = st.sidebar.selectbox("Mon Équipe", teams)
@@ -460,20 +419,19 @@ with c_sel:
     is_home = "Domicile" in loc
 
 # 3. Calculs Ranks & Stats
-# On a besoin du rang actuel de l'adversaire
+rank_stats = None
 try:
-    opp_stats = df_snap[df_snap['equipe'] == opp].iloc[0]
-    rank_team = int(team_stats['rang'])
-    rank_opp = int(opp_stats['rang'])
-    
-    # QUI RECOIT QUI ?
-    r_home = rank_team if is_home else rank_opp
-    r_away = rank_opp if is_home else rank_team
-    
-    # STATS HISTORIQUES (RANK vs RANK)
-    rank_stats = get_rank_vs_rank_stats(df_ranks_history, r_home, r_away)
+    if not df_ranks_history.empty:
+        opp_stats = df_snap[df_snap['equipe'] == opp].iloc[0]
+        rank_team = int(team_stats['rang'])
+        rank_opp = int(opp_stats['rang'])
+        
+        r_home = rank_team if is_home else rank_opp
+        r_away = rank_opp if is_home else rank_team
+        
+        rank_stats = get_rank_vs_rank_stats(df_ranks_history, r_home, r_away)
 except:
-    rank_stats = None
+    pass
 
 # 4. Prédiction
 p_home = selected_team if is_home else opp
