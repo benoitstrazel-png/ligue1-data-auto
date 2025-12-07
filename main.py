@@ -1,3 +1,4 @@
+from google.cloud import bigquery
 import pandas as pd
 import os
 import json
@@ -108,6 +109,73 @@ def main():
         print("🎉 Données exportées avec succès vers BigQuery !")
     except Exception as e:
         print(f"❌ Erreur lors de l'export BigQuery : {e}")
+
+if __name__ == "__main__":
+    main()
+
+# ... (Ton code existant) ...
+
+def update_standings_table(credentials, project_id):
+    """
+    Lit le fichier SQL et exécute la requête dans BigQuery
+    pour mettre à jour la table de classement.
+    """
+    print("🔄 Mise à jour de la table classement_live...")
+    
+    # On initialise le client BigQuery
+    client = bigquery.Client(credentials=credentials, project=project_id)
+    
+    # On lit le fichier SQL
+    try:
+        with open("update_classement.sql", "r") as file:
+            sql_query = file.read()
+            
+        # On exécute la requête
+        query_job = client.query(sql_query)
+        query_job.result()  # On attend que la requête soit finie
+        print("✅ Table classement_live mise à jour avec succès !")
+        
+    except FileNotFoundError:
+        print("❌ Erreur : Le fichier update_classement.sql est introuvable.")
+    except Exception as e:
+        print(f"❌ Erreur lors de la mise à jour du classement : {e}")
+
+# --- EXPORT VERS BIGQUERY ---
+def main():
+    # 1. Récupération des données
+    print("🚀 Démarrage du scraping...")
+    df = get_ligue1_data(start_year=1993, end_year=2025)
+    
+    if df.empty:
+        print("❌ Aucune donnée récupérée.")
+        return
+
+    print(f"✅ {len(df)} lignes récupérées. Préparation de l'envoi vers BigQuery...")
+
+    # 2. Configuration BigQuery
+    service_account_info = json.loads(os.environ["GCP_SA_KEY"])
+    project_id = os.environ["GCP_PROJECT_ID"]
+    dataset_table = "historic_datasets.matchs_clean" # Adapte si besoin
+
+    credentials = service_account.Credentials.from_service_account_info(service_account_info)
+
+    # 3. Envoi des données brutes
+    try:
+        to_gbq(
+            df,
+            destination_table=dataset_table,
+            project_id=project_id,
+            credentials=credentials,
+            if_exists='replace',
+            chunksize=None
+        )
+        print("🎉 Données exportées avec succès vers BigQuery !")
+        
+        # 4. LANCEMENT DU CALCUL SQL (C'est ici qu'on chaîne l'étape)
+        update_standings_table(credentials, project_id)
+        
+    except Exception as e:
+        print(f"❌ Erreur critique : {e}")
 
 if __name__ == "__main__":
     main()
