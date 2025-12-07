@@ -95,7 +95,6 @@ def load_multi_season_stats(seasons_list):
 @st.cache_data(ttl=600)
 def load_rank_history():
     client = get_db_client()
-    # Alias SQL pour éviter l'erreur de colonne
     q = f"SELECT saison as season, journee_team, equipe as team, total_points FROM `{client.project}.historic_datasets.classement_live`"
     try: df = client.query(q).to_dataframe()
     except: return pd.DataFrame()
@@ -126,15 +125,11 @@ def get_live_schedule():
 # --- LOGIQUE MÉTIER ---
 
 def calculate_advanced_stats_and_betting(df, team, stake=10):
-    """Calcul Stats Avancées + Simulation Paris"""
     df_team = df[(df['home_team'] == team) | (df['away_team'] == team)].copy()
     if df_team.empty: return None, None
 
-    # Indicateurs Jeu
     total_shots = 0; total_target = 0; total_yellow = 0; total_red = 0
     
-    # Indicateurs Paris (ROI)
-    # Structure : {Nom Stratégie: {Profit: X, Investi: Y}}
     strats = {
         'Victoire': {'p': 0, 'i': 0}, 'Nul': {'p': 0, 'i': 0}, 'Défaite': {'p': 0, 'i': 0},
         'Over 2.5': {'p': 0, 'i': 0}, 'Under 2.5': {'p': 0, 'i': 0}
@@ -143,7 +138,6 @@ def calculate_advanced_stats_and_betting(df, team, stake=10):
     for _, row in df_team.iterrows():
         is_home = row['home_team'] == team
         
-        # Stats Jeu
         if is_home:
             total_shots += row.get('home_shots', 0)
             total_target += row.get('home_shots_on_target', 0)
@@ -155,36 +149,30 @@ def calculate_advanced_stats_and_betting(df, team, stake=10):
             total_yellow += row.get('away_yellow_cards', 0)
             total_red += row.get('away_red_cards', 0)
 
-        # Betting
         res = row['full_time_result']
         goals = row['full_time_home_goals'] + row['full_time_away_goals']
         
-        # Cotes (Gestion des NaN)
         h_odd = row.get('bet365_home_win_odds', 0) if pd.notna(row.get('bet365_home_win_odds')) else 0
         d_odd = row.get('bet365_draw_odds', 0) if pd.notna(row.get('bet365_draw_odds')) else 0
         a_odd = row.get('bet365_away_win_odds', 0) if pd.notna(row.get('bet365_away_win_odds')) else 0
         o25 = row.get('bet365_over_25_goals', 0) if pd.notna(row.get('bet365_over_25_goals')) else 0
         u25 = row.get('bet365_under_25_goals', 0) if pd.notna(row.get('bet365_under_25_goals')) else 0
 
-        # Stratégie Victoire
         if h_odd and a_odd:
             strats['Victoire']['i'] += stake
             w_odd = h_odd if is_home else a_odd
             if (is_home and res == 'H') or (not is_home and res == 'A'): strats['Victoire']['p'] += (w_odd * stake) - stake
             else: strats['Victoire']['p'] -= stake
             
-            # Stratégie Défaite (Miser contre son équipe)
             strats['Défaite']['i'] += stake
             l_odd = a_odd if is_home else h_odd
             if (is_home and res == 'A') or (not is_home and res == 'H'): strats['Défaite']['p'] += (l_odd * stake) - stake
             else: strats['Défaite']['p'] -= stake
             
-            # Stratégie Nul
             strats['Nul']['i'] += stake
             if res == 'D': strats['Nul']['p'] += (d_odd * stake) - stake
             else: strats['Nul']['p'] -= stake
 
-        # Stratégies Buts
         if o25 and u25:
             strats['Over 2.5']['i'] += stake
             if goals > 2.5: strats['Over 2.5']['p'] += (o25 * stake) - stake
@@ -200,7 +188,6 @@ def calculate_advanced_stats_and_betting(df, team, stake=10):
         'avg_yellow': total_yellow/nb, 'avg_red': total_red/nb
     }
     
-    # Calcul ROI Final
     betting_res = []
     for name, data in strats.items():
         roi = (data['p'] / data['i'] * 100) if data['i'] > 0 else 0
@@ -208,29 +195,97 @@ def calculate_advanced_stats_and_betting(df, team, stake=10):
         
     return stats, pd.DataFrame(betting_res)
 
-def get_opponent_history_table(df, team):
-    """Génère le tableau détaillé des adversaires"""
-    df_t = df[(df['home_team'] == team) | (df['away_team'] == team)].sort_values('date', ascending=False)
-    data = []
-    for _, r in df_t.iterrows():
-        is_home = r['home_team'] == team
-        opp = r['away_team'] if is_home else r['home_team']
-        venue = "Domicile" if is_home else "Extérieur"
-        score = f"{int(r['full_time_home_goals'])}-{int(r['full_time_away_goals'])}"
+def calculate_match_probabilities(att_h, def_h, att_a, def_a, avg_h, avg_a):
+    """Calcule les probabilités V/N/D avec Poisson"""
+    mu_h = att_h * def_a * avg_h
+    mu_a = att_a * def_h * avg_a
+    
+    # Simulation jusqu'à 10 buts
+    max_goals = 10
+    prob_h = [poisson.pmf(i, mu_h) for i in range(max_goals)]
+    prob_a = [poisson.pmf(i, mu_a) for i in range(max_goals)]
+    
+    win = 0; draw = 0; loss = 0
+    for i in range(max_goals):
+        for j in range(max_goals):
+            p = prob_h[i] * prob_a[j]
+            if i > j: win += p
+            elif i == j: draw += p
+            else: loss += p
+            
+    return win * 100, draw * 100, loss * 100, mu_h, mu_a
+
+def get_probabilities_table(df_history, my_team, teams_list, mode="Global"):
+    """Génère le tableau des probabilités contre tous les adversaires"""
+    if df_history.empty: return pd.DataFrame()
+    
+    avg_h = df_history['full_time_home_goals'].mean()
+    avg_a = df_history['full_time_away_goals'].mean()
+    
+    # Stats MyTeam
+    my_home = df_history[df_history['home_team'] == my_team]
+    my_away = df_history[df_history['away_team'] == my_team]
+    
+    if my_home.empty or my_away.empty: return pd.DataFrame()
+    
+    att_h_my = my_home['full_time_home_goals'].mean() / avg_h
+    def_h_my = my_home['full_time_away_goals'].mean() / avg_a
+    att_a_my = my_away['full_time_away_goals'].mean() / avg_a
+    def_a_my = my_away['full_time_home_goals'].mean() / avg_h
+    
+    rows = []
+    
+    for opp in teams_list:
+        if opp == my_team: continue
         
-        res = "Nul"
-        if r['full_time_result'] == 'D': res = "Nul"
-        elif (is_home and r['full_time_result'] == 'H') or (not is_home and r['full_time_result'] == 'A'): res = "Victoire"
-        else: res = "Défaite"
+        opp_home = df_history[df_history['home_team'] == opp]
+        opp_away = df_history[df_history['away_team'] == opp]
         
-        data.append({
-            "Date": r['date'].strftime('%d/%m/%Y'),
-            "Adversaire": opp,
-            "Lieu": venue,
-            "Score": score,
-            "Résultat": res
-        })
-    return pd.DataFrame(data)
+        if opp_home.empty or opp_away.empty: continue
+        
+        att_h_opp = opp_home['full_time_home_goals'].mean() / avg_h
+        def_h_opp = opp_home['full_time_away_goals'].mean() / avg_a
+        att_a_opp = opp_away['full_time_away_goals'].mean() / avg_a
+        def_a_opp = opp_away['full_time_home_goals'].mean() / avg_h
+        
+        # Calcul selon le mode
+        res = {}
+        
+        if mode == "Domicile" or mode == "Global":
+            # MyTeam (Home) vs Opp (Away)
+            w, d, l, _, _ = calculate_match_probabilities(att_h_my, def_h_my, att_a_opp, def_a_opp, avg_h, avg_a)
+            if mode == "Domicile":
+                res = {'Adversaire': opp, 'Victoire': w, 'Nul': d, 'Défaite': l}
+            elif mode == "Global":
+                res['w_h'] = w; res['d_h'] = d; res['l_h'] = l
+
+        if mode == "Extérieur" or mode == "Global":
+            # MyTeam (Away) vs Opp (Home)
+            # Note: Poisson formula inputs are (HomeAtt, HomeDef, AwayAtt, AwayDef)
+            # Here Opp is Home, MyTeam is Away
+            l_opp, d_opp, w_opp, _, _ = calculate_match_probabilities(att_h_opp, def_h_opp, att_a_my, def_a_my, avg_h, avg_a)
+            # w_opp means Opp wins (MyTeam Loss)
+            if mode == "Extérieur":
+                res = {'Adversaire': opp, 'Victoire': w_opp, 'Nul': d_opp, 'Défaite': l_opp}
+            elif mode == "Global":
+                res['w_a'] = w_opp; res['d_a'] = d_opp; res['l_a'] = l_opp
+                
+        if mode == "Global":
+            # Moyenne des deux
+            res = {
+                'Adversaire': opp,
+                'Victoire': (res['w_h'] + res['w_a']) / 2,
+                'Nul': (res['d_h'] + res['d_a']) / 2,
+                'Défaite': (res['l_h'] + res['l_a']) / 2
+            }
+            
+        rows.append(res)
+        
+    df_res = pd.DataFrame(rows)
+    if not df_res.empty:
+        df_res = df_res.set_index('Adversaire')
+        df_res = df_res.applymap(lambda x: f"{x:.1f}%")
+    return df_res
 
 def get_spider_data_normalized(df, team1, team2=None):
     all_teams = pd.concat([df['home_team'], df['away_team']]).unique()
@@ -304,10 +359,7 @@ st.markdown("---")
 # ================= STATS & BETTING =================
 st.subheader("📈 Stats Jeu & Paris Sportifs")
 
-# Inputs Paris
 stake = st.number_input("Mise par match (€)", min_value=1, value=10, step=5)
-
-# Calculs
 game_stats, bet_df = calculate_advanced_stats_and_betting(df_matchs, my_team, stake)
 
 if game_stats:
@@ -322,37 +374,44 @@ col_bet, col_radar = st.columns([1, 1])
 with col_bet:
     st.markdown(f"##### 💰 Rentabilité Paris (Mise {stake}€)")
     if bet_df is not None:
-        # Graphique ROI Barres
         colors = ['#2ECC71' if x > 0 else '#E74C3C' for x in bet_df['Profit']]
+        # Update text to show Profit + ROI
+        bet_df['Text'] = bet_df.apply(lambda x: f"{x['Profit']:+.0f}€ ({x['ROI']:+.1f}%)", axis=1)
+        
         fig_bet = go.Figure(go.Bar(
             x=bet_df['Type'], y=bet_df['Profit'],
-            text=bet_df['ROI'].apply(lambda x: f"{x:+.1f}%"),
-            marker_color=colors
+            text=bet_df['Text'],
+            marker_color=colors,
+            textposition='auto'
         ))
-        # Police NOIRE et fond BLANC comme demandé
+        # Style demandé : Fond blanc (avec transparence 70% => rgba(255,255,255,0.3))
+        # Texte légende lisible (Blanc ou Noir selon le fond app). App = Foncé. Fond Chart = 30% Blanc (Gris foncé).
+        # Texte = Blanc/Clair pour être lu.
         fig_bet.update_layout(
-            title="Profit Net (Pertes/Gains)",
-            font=dict(color='black'), # Police noire
-            paper_bgcolor='white',    # Fond blanc
-            plot_bgcolor='white',
+            title="Profit Net & ROI",
+            font=dict(color='white'),
+            paper_bgcolor='rgba(255,255,255,0.3)',
+            plot_bgcolor='rgba(255,255,255,0.3)',
             height=300
         )
         st.plotly_chart(fig_bet, use_container_width=True)
-        st.caption("Simulation basée sur les cotes historiques Bet365 de la saison.")
 
 with col_radar:
     st.markdown("##### 🕸️ Style de Jeu")
-    cats, v1, v2, _ = get_spider_data_normalized(df_matchs, my_team, None) # None = Moyenne Ligue
+    cats, v1, v2, _ = get_spider_data_normalized(df_matchs, my_team, None)
     if cats:
         fig_rad = go.Figure()
         fig_rad.add_trace(go.Scatterpolar(r=v1, theta=cats, fill='toself', name=my_team, line_color='#DAE025'))
         fig_rad.add_trace(go.Scatterpolar(r=v2, theta=cats, fill='toself', name='Moyenne', line_color='#95A5A6'))
-        # Police NOIRE et fond BLANC comme demandé
+        
         fig_rad.update_layout(
-            polar=dict(radialaxis=dict(visible=True, range=[0, 100], color='black'), angularaxis=dict(color='black')),
-            font=dict(color='black'),
-            paper_bgcolor='white',
-            plot_bgcolor='white',
+            polar=dict(
+                radialaxis=dict(visible=True, range=[0, 100], color='white', gridcolor='#999'),
+                angularaxis=dict(color='white')
+            ),
+            font=dict(color='white'),
+            paper_bgcolor='rgba(255,255,255,0.3)',
+            plot_bgcolor='rgba(255,255,255,0.3)',
             margin=dict(t=30, b=30, l=40, r=40),
             legend=dict(orientation="h", y=-0.1)
         )
@@ -363,18 +422,19 @@ st.markdown("---")
 # ================= SIMULATION OU VUE GLOBALE =================
 st.subheader("⚔️ Analyse Adversaire")
 
-# Menu intelligent : "Vue d'ensemble" ou Liste des équipes
 opp_list = ["Vue d'ensemble (Tous)"] + [t for t in teams if t != my_team]
 opp_selection = st.selectbox("Adversaire", opp_list)
 
 if opp_selection == "Vue d'ensemble (Tous)":
     # --- VUE TABLEAU GLOBAL ---
-    st.markdown(f"##### 📜 Historique complet - {my_team}")
-    df_all_opp = get_opponent_history_table(df_matchs, my_team)
-    if not df_all_opp.empty:
-        st.dataframe(df_all_opp, use_container_width=True, hide_index=True)
+    st.markdown(f"##### 📜 Probabilités par adversaire - {my_team}")
+    mode_filter = st.radio("Filtre Lieu :", ["Global", "Domicile", "Extérieur"], horizontal=True)
+    
+    df_probs = get_probabilities_table(df_history, my_team, teams, mode_filter)
+    if not df_probs.empty:
+        st.dataframe(df_probs, use_container_width=True)
     else:
-        st.info("Aucun match joué cette saison.")
+        st.info("Pas assez de données pour calculer les probabilités.")
 
 else:
     # --- VUE DUEL / PREDICTION ---
@@ -384,36 +444,38 @@ else:
         loc = st.radio("Lieu", ["Domicile", "Extérieur"])
         is_home = "Domicile" in loc
     
-    # Calculs Prédictions (Existants)
+    # Rank Stats
     try:
         opp_s = df_snap[df_snap['equipe'] == opp].iloc[0]
         r_h = int(stats_team['rang']) if is_home else int(opp_s['rang'])
         r_a = int(opp_s['rang']) if is_home else int(stats_team['rang'])
-        
         mask = (df_ranks['home_rank'].between(r_h-3, r_h+3)) & (df_ranks['away_rank'].between(r_a-3, r_a+3))
         sub = df_ranks[mask]
         rank_stats = None
         if len(sub) > 10:
             w = len(sub[sub['full_time_result']=='H'])
-            rank_stats = {'win_pct': (w/len(sub))*100, 'n': len(sub)}
+            rank_stats = {'win_pct': (w/len(sub))*100}
     except: rank_stats = None
 
     # Poisson & Predict
     th, ta = (my_team, opp) if is_home else (opp, my_team)
-    # RAPPEL FIX : on utilise df_history (multi-saison)
     hm = df_history[df_history['home_team']==th]
     am = df_history[df_history['away_team']==ta]
     xg_h, xg_a = None, None
+    prob_w, prob_d, prob_l = 0, 0, 0
 
     if not hm.empty and not am.empty:
         av_h = df_history['full_time_home_goals'].mean()
         av_a = df_history['full_time_away_goals'].mean()
         att_h, def_h = hm['full_time_home_goals'].mean()/av_h, hm['full_time_away_goals'].mean()/av_a
         att_a, def_a = am['full_time_away_goals'].mean()/av_a, am['full_time_home_goals'].mean()/av_h
-        xg_h, xg_a = att_h*def_a*av_h, att_a*def_h*av_a
+        
+        # Calc probs & xG
+        prob_w, prob_d, prob_l, xg_h, xg_a = calculate_match_probabilities(att_h, def_h, att_a, def_a, av_h, av_a)
+        
+        # Ajustement xG selon Rank
         if rank_stats and rank_stats['win_pct'] > 60: xg_h *= 1.15
-        elif rank_stats and rank_stats['win_pct'] < 20: xg_a *= 1.15
-
+    
     with c_res:
         if xg_h:
             sh, sa = int(round(xg_h)), int(round(xg_a))
@@ -424,8 +486,38 @@ else:
                     <div style="font-size:0.8rem; color:#AAA;">xG: {xg_h:.2f} - {xg_a:.2f}</div>
                 </div>
             """, unsafe_allow_html=True)
-            if rank_stats:
-                st.markdown(f"""<div class="insight-box">📊 <b>Stat Choc :</b> Quand le {r_h}e reçoit le {r_a}e, il gagne dans <b>{rank_stats['win_pct']:.0f}%</b> des cas.</div>""", unsafe_allow_html=True)
+            
+            # --- SAFE BET ADVICE ---
+            best_opt = "Victoire" if prob_w > max(prob_d, prob_l) else ("Défaite" if prob_l > max(prob_w, prob_d) else "Nul")
+            best_prob = max(prob_w, prob_d, prob_l)
+            
+            # Ajustement du message selon la certitude
+            advice_color = "#2ECC71" # Vert
+            if best_prob < 40: advice_color = "#F1C40F" # Jaune (incertain)
+            
+            # On affiche le conseil
+            # Si MyTeam joue à domicile: Victoire = MyTeam Win
+            # Si MyTeam joue extérieur: Victoire = Opp Win (car prob_w est pour l'équipe Domicile)
+            # On doit traduire pour l'utilisateur (MyTeam Win/Loss)
+            
+            # prob_w est pour l'équipe à Domicile (th)
+            outcome_text = ""
+            if is_home: # MyTeam is TH
+                if best_opt == "Victoire": outcome_text = f"Victoire de {my_team}"
+                elif best_opt == "Défaite": outcome_text = f"Victoire de {opp}"
+                else: outcome_text = "Match Nul"
+            else: # MyTeam is TA
+                if best_opt == "Victoire": outcome_text = f"Victoire de {opp}" # TH wins
+                elif best_opt == "Défaite": outcome_text = f"Victoire de {my_team}" # TH loses
+                else: outcome_text = "Match Nul"
+
+            st.markdown(f"""
+                <div style="background-color: rgba(255,255,255,0.1); border-left: 5px solid {advice_color}; padding: 15px; margin-top: 10px; border-radius: 5px;">
+                    💡 <b>L'option la plus sûre :</b> <br>
+                    <span style="font-size: 1.2rem; font-weight: bold; color: {advice_color};">{outcome_text}</span> 
+                    <span style="color: #AAA;">({best_prob:.1f}% de probabilité estimée)</span>
+                </div>
+            """, unsafe_allow_html=True)
 
 st.markdown("---")
 # ================= CALENDRIER =================
@@ -467,6 +559,9 @@ st.markdown("---")
 hist = df_class[df_class['equipe'] == my_team]
 fig = px.line(hist, x='journee_team', y='total_points', title=f"Trajectoire {my_team}", markers=True)
 fig.update_traces(line_color='#DAE025', line_width=4)
-# Police NOIRE et fond BLANC comme demandé
-fig.update_layout(paper_bgcolor='white', plot_bgcolor='white', font=dict(color='black'))
+fig.update_layout(
+    paper_bgcolor='rgba(255,255,255,0.3)', 
+    plot_bgcolor='rgba(255,255,255,0.3)', 
+    font=dict(color='white')
+)
 st.plotly_chart(fig, use_container_width=True)
