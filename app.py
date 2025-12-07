@@ -7,21 +7,49 @@ import plotly.express as px
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(page_title="Ligue 1 Data Center", layout="wide", page_icon="⚽")
 
-# --- STYLE CSS AVANCÉ ---
+# --- STYLE CSS AVANCÉ (CORRIGÉ POUR LISIBILITÉ) ---
 st.markdown("""
     <style>
-    .stApp { background-color: #F8F9FA; }
+    /* 1. Fond général de l'application */
+    .stApp {
+        background-color: #F4F4F4;
+    }
+    
+    /* 2. FORCE LA COULEUR DES TEXTES ET TITRES EN BLEU FONCÉ */
+    h1, h2, h3, h4, h5, h6, p, span, div {
+        color: #091C3E; 
+    }
+    
+    /* 3. Exception : Les textes à l'intérieur des cartes métriques personnalisées restent jaunes/blancs */
+    .metric-card h3, .metric-card div, .metric-card span {
+        color: #DAE025 !important; /* Jaune pour les valeurs */
+    }
+    .metric-card .metric-label {
+        color: #E0E0E0 !important; /* Blanc cassé pour les étiquettes dans le bleu */
+    }
+
+    /* 4. Style des cartes KPI (Bleu foncé) */
     .metric-card {
         background-color: #091C3E;
-        color: #DAE025;
         padding: 20px;
         border-radius: 12px;
         text-align: center;
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         margin-bottom: 10px;
     }
-    .metric-value { font-size: 2rem; font-weight: 800; margin: 0; }
-    .metric-label { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.9; }
+    .metric-value {
+        font-size: 2rem;
+        font-weight: 800;
+        margin: 0;
+        color: #DAE025 !important;
+    }
+    
+    /* 5. Style des titres de section natifs Streamlit */
+    .stHeadingContainer {
+        color: #091C3E !important;
+    }
+
+    /* 6. Pastilles de forme (V-N-D) */
     .form-badge {
         display: inline-block;
         width: 30px;
@@ -30,14 +58,14 @@ st.markdown("""
         border-radius: 50%;
         text-align: center;
         font-weight: bold;
-        color: white;
+        color: white !important; /* Force le blanc dans les pastilles */
         margin-right: 5px;
         font-size: 0.8rem;
     }
     .win { background-color: #2ECC71; }
     .draw { background-color: #95A5A6; }
     .loss { background-color: #E74C3C; }
-    h3 { color: #091C3E; border-bottom: 2px solid #DAE025; padding-bottom: 10px; }
+    
     </style>
 """, unsafe_allow_html=True)
 
