@@ -5,7 +5,6 @@ from google.cloud import bigquery
 import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
-from scipy.stats import poisson
 import requests
 
 # --- CONFIGURATION ---
@@ -54,6 +53,7 @@ def load_focus_season(season_name):
 @st.cache_data(ttl=600)
 def load_rank_history():
     client = get_db_client()
+    # Alias SQL pour éviter l'erreur de colonne
     q = f"SELECT saison as season, journee_team, equipe as team, total_points FROM `{client.project}.historic_datasets.classement_live`"
     try: df = client.query(q).to_dataframe()
     except: return pd.DataFrame()
@@ -92,56 +92,45 @@ def get_live_schedule():
 
 # --- LOGIQUE ---
 def get_spider_data_normalized(df, team1, team2=None):
-    """Calcule les stats normalisées (0-100) basées sur les Max de la ligue"""
-    # 1. Calcul des moyennes pour TOUTES les équipes (pour trouver le Max)
     all_teams = pd.concat([df['home_team'], df['away_team']]).unique()
     metrics = {
-        'Buts Pour': lambda x, is_home: x['full_time_home_goals'] if is_home else x['full_time_away_goals'],
-        'Tirs Cadrés': lambda x, is_home: x['home_shots_on_target'] if is_home else x['away_shots_on_target'],
-        'Corners': lambda x, is_home: x['home_corners'] if is_home else x['away_corners'],
-        'Jaunes (Fairplay)': lambda x, is_home: x['home_yellow_cards'] if is_home else x['away_yellow_cards'],
-        'Défense (Buts encaissés)': lambda x, is_home: x['full_time_away_goals'] if is_home else x['full_time_home_goals']
+        'Buts Pour': lambda x, h: x['full_time_home_goals'] if h else x['full_time_away_goals'],
+        'Tirs Cadrés': lambda x, h: x['home_shots_on_target'] if h else x['away_shots_on_target'],
+        'Corners': lambda x, h: x['home_corners'] if h else x['away_corners'],
+        'Fairplay (Inv)': lambda x, h: x['home_yellow_cards'] if h else x['away_yellow_cards'],
+        'Défense (Inv)': lambda x, h: x['full_time_away_goals'] if h else x['full_time_home_goals']
     }
     
-    # Calcul des moyennes par équipe
     team_stats = {}
     for t in all_teams:
         sub = df[(df['home_team'] == t) | (df['away_team'] == t)]
         if sub.empty: continue
-        
-        t_vals = {}
-        for m_name, func in metrics.items():
-            vals = []
-            for _, r in sub.iterrows():
-                vals.append(func(r, r['home_team'] == t))
-            t_vals[m_name] = np.nanmean(vals)
-        team_stats[t] = t_vals
+        vals = {k: [] for k in metrics}
+        for _, r in sub.iterrows():
+            is_h = r['home_team'] == t
+            for k, f in metrics.items(): vals[k].append(f(r, is_h))
+        team_stats[t] = {k: np.nanmean(v) for k, v in vals.items()}
         
     if not team_stats: return None, None, None, None
 
-    # Trouver le MAX de la ligue pour chaque métrique
-    df_stats = pd.DataFrame(team_stats).T
-    max_vals = df_stats.max()
+    df_s = pd.DataFrame(team_stats).T
+    max_v = df_s.max()
     
-    # Fonction de normalisation (Min-Max simplifiée : Val / Max * 100)
-    def get_norm_vals(t_name):
+    def get_norm(t_name):
         if t_name not in team_stats: return [0]*len(metrics)
         raw = team_stats[t_name]
         norm = []
-        for k in metrics.keys():
-            # Inversion pour Jaunes et Buts Encaissés (Moins c'est mieux)
-            if k in ['Jaunes (Fairplay)', 'Défense (Buts encaissés)']:
-                # Score = (1 - (val / max)) * 100 roughly
-                v = 100 - (raw[k] / max_vals[k] * 100)
-            else:
-                v = (raw[k] / max_vals[k]) * 100
+        for k in metrics:
+            if 'Inv' in k: v = 100 - (raw[k]/max_v[k]*100) # Inversion pour stats négatives
+            else: v = (raw[k]/max_v[k])*100
             norm.append(v)
         return norm
 
-    vals_1 = get_norm_vals(team1)
-    vals_2 = get_norm_vals(team2) if team2 else [df_stats[k].mean()/max_vals[k]*100 for k in metrics] # Moyenne si pas de team2
+    v1 = get_norm(team1)
+    v2 = get_norm(team2) if team2 else [df_s[k].mean()/max_v[k]*100 if 'Inv' not in k else 100-(df_s[k].mean()/max_v[k]*100) for k in metrics]
     
-    return list(metrics.keys()), vals_1, vals_2, df_stats # df_stats for raw values if needed
+    labels = [k.replace(' (Inv)', '') for k in metrics]
+    return labels, v1, v2, df_s
 
 # --- INTERFACE ---
 st.sidebar.title("🔍 Filtres")
@@ -150,7 +139,7 @@ selected_seasons = st.sidebar.multiselect("Historique", all_seasons, default=[al
 focus_season = sorted(selected_seasons, reverse=True)[0]
 
 df_class, df_matchs = load_focus_season(focus_season)
-df_hist = load_multi_season(selected_seasons)
+df_history = load_multi_season(selected_seasons) # NOM CORRIGÉ ICI (df_history)
 df_ranks = load_rank_history()
 
 teams = sorted(df_class['equipe'].unique())
@@ -158,7 +147,6 @@ my_team = st.sidebar.selectbox("Mon Équipe", teams)
 max_j = int(df_class['journee_team'].max()) if not df_class.empty else 1
 cur_j = st.sidebar.slider("Journée", 1, max_j, max_j)
 
-# Snapshot
 df_snap = df_class[df_class['journee_team'] <= cur_j].sort_values('match_timestamp').groupby('equipe').last().reset_index()
 df_snap['rang'] = df_snap['total_points'].rank(ascending=False, method='min')
 stats_team = df_snap[df_snap['equipe'] == my_team].iloc[0]
@@ -172,65 +160,36 @@ c3.markdown(f'<div class="metric-card"><div class="metric-label">Buts Pour</div>
 
 st.markdown("---")
 
-# ================= DUEL RADAR & COMPARATEUR =================
-st.subheader("🕸️ Comparateur de Style (Radar)")
-
+# ================= DUEL RADAR =================
+st.subheader("🕸️ Comparateur de Style")
 col_radar, col_comp = st.columns([2, 1])
 
 with col_comp:
     st.markdown("##### Comparer avec :")
-    comp_team_list = ["Moyenne Ligue"] + [t for t in teams if t != my_team]
-    comp_target = st.selectbox("Sélectionner un adversaire", comp_team_list)
-    
-    st.info("""
-    **Légende du Radar :**
-    - Échelle 0-100 normalisée.
-    - **100** = Meilleure équipe de la ligue sur ce critère.
-    - Pour *Défense* et *Jaunes*, 100 signifie "Encaisser peu" et "Peu de cartons".
-    """)
+    comp_list = ["Moyenne Ligue"] + [t for t in teams if t != my_team]
+    comp_target = st.selectbox("Sélectionner un adversaire", comp_list)
+    st.info("**Légende :** Échelle 0-100 normalisée par rapport au meilleur de la ligue.")
 
 with col_radar:
-    # Calcul Données Normalisées
-    target_team = None if comp_target == "Moyenne Ligue" else comp_target
-    categories, val_1, val_2, _ = get_spider_data_normalized(df_matchs, my_team, target_team)
+    tgt = None if comp_target == "Moyenne Ligue" else comp_target
+    cats, v1, v2, _ = get_spider_data_normalized(df_matchs, my_team, tgt)
     
-    if categories:
+    if cats:
         fig = go.Figure()
-        
-        # Trace Equipe Principale
-        fig.add_trace(go.Scatterpolar(
-            r=val_1, theta=categories, fill='toself', 
-            name=my_team, line_color='#DAE025', marker=dict(size=8)
-        ))
-        
-        # Trace Comparaison
-        color_2 = '#95A5A6' if comp_target == "Moyenne Ligue" else '#E74C3C' # Gris ou Rouge
-        fig.add_trace(go.Scatterpolar(
-            r=val_2, theta=categories, fill='toself', 
-            name=comp_target, line_color=color_2, opacity=0.6
-        ))
-        
-        # Layout propre et lisible
+        fig.add_trace(go.Scatterpolar(r=v1, theta=cats, fill='toself', name=my_team, line_color='#DAE025'))
+        c2 = '#95A5A6' if comp_target == "Moyenne Ligue" else '#E74C3C'
+        fig.add_trace(go.Scatterpolar(r=v2, theta=cats, fill='toself', name=comp_target, line_color=c2, opacity=0.6))
         fig.update_layout(
-            polar=dict(
-                radialaxis=dict(visible=True, range=[0, 100], color='white', gridcolor='#444'),
-                angularaxis=dict(color='white')
-            ),
-            paper_bgcolor='rgba(0,0,0,0)', 
-            plot_bgcolor='rgba(0,0,0,0)',
-            font=dict(color='white', size=14), # Police plus grande
-            margin=dict(t=30, b=30, l=40, r=40),
-            legend=dict(
-                orientation="h", y=-0.1, 
-                font=dict(color="white", size=14), # Légende bien visible
-                bgcolor="rgba(0,0,0,0)"
-            )
+            polar=dict(radialaxis=dict(visible=True, range=[0, 100], color='white', gridcolor='#444'), angularaxis=dict(color='white')),
+            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+            font=dict(color='white', size=14), margin=dict(t=30, b=30, l=40, r=40),
+            legend=dict(orientation="h", y=-0.1, font=dict(color="white"))
         )
         st.plotly_chart(fig, use_container_width=True)
 
 st.markdown("---")
 
-# ================= SIMULATION MATCH =================
+# ================= SIMULATION =================
 st.subheader("⚔️ Simulation de Match")
 c_sel, c_res = st.columns([1, 2])
 with c_sel:
@@ -238,13 +197,10 @@ with c_sel:
     loc = st.radio("Lieu", ["Domicile", "Extérieur"])
     is_home = "Domicile" in loc
 
-# Calculs
 try:
     opp_s = df_snap[df_snap['equipe'] == opp].iloc[0]
     r_h = int(stats_team['rang']) if is_home else int(opp_s['rang'])
     r_a = int(opp_s['rang']) if is_home else int(stats_team['rang'])
-    
-    # Rank Stats
     mask = (df_ranks['home_rank'].between(r_h-3, r_h+3)) & (df_ranks['away_rank'].between(r_a-3, r_a+3))
     sub = df_ranks[mask]
     rank_stats = None
@@ -253,19 +209,18 @@ try:
         rank_stats = {'win_pct': (w/len(sub))*100, 'n': len(sub)}
 except: rank_stats = None
 
-# Poisson
 th, ta = (my_team, opp) if is_home else (opp, my_team)
+# UTILISATION CORRECTE DE df_history (défini plus haut)
 hm = df_history[df_history['home_team']==th]
 am = df_history[df_history['away_team']==ta]
 xg_h, xg_a = None, None
+
 if not hm.empty and not am.empty:
     av_h = df_history['full_time_home_goals'].mean()
     av_a = df_history['full_time_away_goals'].mean()
     att_h, def_h = hm['full_time_home_goals'].mean()/av_h, hm['full_time_away_goals'].mean()/av_a
     att_a, def_a = am['full_time_away_goals'].mean()/av_a, am['full_time_home_goals'].mean()/av_h
     xg_h, xg_a = att_h*def_a*av_h, att_a*def_h*av_a
-    
-    # Ajustement Rank
     if rank_stats and rank_stats['win_pct'] > 60: xg_h *= 1.15
     elif rank_stats and rank_stats['win_pct'] < 20: xg_a *= 1.15
 
@@ -306,14 +261,12 @@ if not nxt.empty:
     preds = []
     for _, m in nxt.iterrows():
         d, e = m['HomeTeam'], m['AwayTeam']
-        # Simple Poisson Recalculé pour le tableau
         h_m = df_history[df_history['home_team']==d]
         a_m = df_history[df_history['away_team']==e]
         sc = "N/A"
         if not h_m.empty and not a_m.empty:
             ah, dh = h_m['full_time_home_goals'].mean(), h_m['full_time_away_goals'].mean()
             aa, da = a_m['full_time_away_goals'].mean(), a_m['full_time_home_goals'].mean()
-            # On simplifie sans moyenne ligue pour aller vite dans la boucle
             sc = f"{int(round(ah*da))} - {int(round(aa*dh))}"
         preds.append({"Date": m['DateUtc'].strftime('%d/%m %H:%M'), "Dom": d, "Score": sc, "Ext": e})
     st.dataframe(pd.DataFrame(preds).set_index("Date"), use_container_width=True)
