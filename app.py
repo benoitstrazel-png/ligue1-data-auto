@@ -9,8 +9,22 @@ from scipy.stats import poisson
 import requests
 import itertools
 
-# --- CONFIGURATION ---
+# --- 1. CONFIGURATION DE LA PAGE (Doit être la première commande Streamlit) ---
 st.set_page_config(page_title="Ligue 1 Data Center", layout="wide", page_icon="⚽")
+
+# --- 2. CRÉATION DU MENU DE NAVIGATION (DÉPLACÉ ICI POUR ÉVITER L'ERREUR) ---
+# En le mettant tout en haut, on est sûr que la variable 'page' existe toujours.
+st.sidebar.title("Navigation")
+page = st.sidebar.radio("Menu", ["Dashboard", "Classement Prédictif"])
+
+st.sidebar.markdown("---")
+
+# --- 3. MODE DÉVELOPPEUR (SWITCHER) ---
+use_dev_mode = st.sidebar.toggle("🛠️ Mode Développeur", value=False)
+TARGET_DATASET = "historic_datasets_dev" if use_dev_mode else "historic_datasets"
+
+if use_dev_mode:
+    st.sidebar.warning(f"⚠️ Source : {TARGET_DATASET}")
 
 # --- STYLE CSS AVANCÉ ---
 st.markdown("""
@@ -65,18 +79,6 @@ st.markdown("""
     [data-testid="stDataFrame"] { background-color: #2C3E50; }
     </style>
 """, unsafe_allow_html=True)
-
-# --- NAVIGATION & MODE DEV (DÉFINIS AU DÉBUT POUR ÉVITER LES ERREURS) ---
-st.sidebar.title("Navigation")
-page = st.sidebar.radio("Menu", ["Dashboard", "Classement Prédictif"])
-
-st.sidebar.markdown("---")
-# Switcher Dev/Prod
-use_dev_mode = st.sidebar.toggle("🛠️ Mode Développeur", value=False)
-TARGET_DATASET = "historic_datasets_dev" if use_dev_mode else "historic_datasets"
-
-if use_dev_mode:
-    st.sidebar.warning(f"⚠️ Source : {TARGET_DATASET}")
 
 # Logo Partenaire
 betclic_logo = "https://upload.wikimedia.org/wikipedia/commons/3/36/Logo_Betclic.svg"
@@ -376,6 +378,7 @@ if page == "Dashboard":
         k3.markdown(f'<div class="metric-card"><div class="metric-label">Buts Pour</div><div class="metric-value">{int(stats_team["total_bp"])}</div></div>', unsafe_allow_html=True)
         k4.markdown(f'<div class="metric-card"><div class="metric-label">Diff.</div><div class="metric-value" style="color:white !important">{int(stats_team["total_diff"]):+d}</div></div>', unsafe_allow_html=True)
         
+        # Stats & Paris
         st.subheader("📈 Stats Jeu & Paris Sportifs")
         st.markdown("""<div class="insight-box">💡 <b>Betting :</b> Simulation de rentabilité si vous aviez misé 10€ sur chaque match de cette équipe cette saison.</div>""", unsafe_allow_html=True)
         
