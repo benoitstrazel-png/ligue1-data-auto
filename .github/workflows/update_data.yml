@@ -4,7 +4,7 @@ on:
   schedule:
     # Cron syntax: "Minutes Heures JourMois Mois JourSemaine"
     # Ici: À 08h00 UTC, tous les Lundis (1)
-    - cron: '0 8 * * 1'
+    - cron: '2 0 * * 1'
   workflow_dispatch: # Permet de lancer manuellement le script depuis l'interface GitHub si besoin
 
 jobs:
