@@ -16,19 +16,13 @@ st.set_page_config(page_title="Ligue 1 Data Center", layout="wide", page_icon="�
 st.markdown("""
     <style>
     .stApp { background-color: #1A1C23; }
-    
-    /* Textes */
     h1, h2, h3, h4, h5, p, span, div, label, .stDataFrame, .stTable { color: #FFFFFF !important; }
-    
-    /* Titre Principal */
     .main-title {
         font-size: 3rem; font-weight: 900; text-transform: uppercase;
         background: -webkit-linear-gradient(left, #DAE025, #FFFFFF);
         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
         margin-bottom: 20px;
     }
-    
-    /* Cartes Globales (Header) */
     .global-card {
         background-color: #091C3E; border-left: 4px solid #DAE025;
         padding: 10px; border-radius: 8px; text-align: center;
@@ -36,23 +30,18 @@ st.markdown("""
     }
     .global-val { font-size: 1.5rem; font-weight: 800; color: #DAE025; margin: 0; }
     .global-lbl { font-size: 0.8rem; color: #E0E0E0; text-transform: uppercase; }
-    
-    /* Cartes KPI Club */
     .metric-card {
         background-color: #2C3E50; padding: 15px; border-radius: 12px;
         text-align: center; border: 1px solid #444; margin-bottom: 10px;
     }
     .metric-value { font-size: 1.8rem; font-weight: 800; margin: 0; color: #2ECC71; }
     .metric-label { font-size: 0.9rem; color: #CCC; }
-    
-    /* Score & Conseils */
     .score-card {
         background: linear-gradient(135deg, #091C3E 0%, #1A1C23 100%);
         border: 2px solid #DAE025; border-radius: 15px; padding: 20px;
         text-align: center; margin-top: 10px;
     }
     .score-display { font-size: 3rem; font-weight: bold; color: #FFFFFF; font-family: monospace; }
-    
     .advice-box {
         background-color: rgba(46, 204, 113, 0.1); border-left: 5px solid #2ECC71;
         padding: 15px; margin-top: 10px; border-radius: 5px;
@@ -62,8 +51,6 @@ st.markdown("""
         padding: 15px; margin-top: 10px; color: #FFFFFF; border-radius: 5px;
         font-size: 0.9rem;
     }
-    
-    /* Pastilles Forme */
     .form-badge {
         display: inline-block; width: 32px; height: 32px; line-height: 32px;
         border-radius: 50%; text-align: center; font-weight: bold;
@@ -73,15 +60,36 @@ st.markdown("""
     .win { background-color: #2ECC71; }
     .draw { background-color: #95A5A6; }
     .loss { background-color: #E74C3C; }
-    
-    /* Sidebar & Tableaux */
     [data-testid="stSidebar"] { background-color: #091C3E; }
     [data-testid="stSidebar"] * { color: #FFFFFF !important; }
     [data-testid="stDataFrame"] { background-color: #2C3E50; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- BQ LOAD ---
+# --- NAVIGATION & MODE DEV (DÉFINIS AU DÉBUT POUR ÉVITER LES ERREURS) ---
+st.sidebar.title("Navigation")
+page = st.sidebar.radio("Menu", ["Dashboard", "Classement Prédictif"])
+
+st.sidebar.markdown("---")
+# Switcher Dev/Prod
+use_dev_mode = st.sidebar.toggle("🛠️ Mode Développeur", value=False)
+TARGET_DATASET = "historic_datasets_dev" if use_dev_mode else "historic_datasets"
+
+if use_dev_mode:
+    st.sidebar.warning(f"⚠️ Source : {TARGET_DATASET}")
+
+# Logo Partenaire
+betclic_logo = "https://upload.wikimedia.org/wikipedia/commons/3/36/Logo_Betclic.svg"
+st.sidebar.markdown(f"""
+    <div style="text-align: center; margin-bottom: 20px; margin-top: 10px;">
+        <a href="https://www.betclic.fr" target="_blank">
+            <img src="{betclic_logo}" width="140" style="background-color: white; padding: 10px; border-radius: 5px;">
+        </a>
+        <p style="color: #CCC; font-size: 0.8rem; margin-top: 5px;">Partenaire Paris Sportifs</p>
+    </div>
+""", unsafe_allow_html=True)
+
+# --- BQ LOAD FUNCTIONS ---
 @st.cache_resource
 def get_db_client():
     key_dict = st.secrets["gcp_service_account"]
@@ -89,19 +97,17 @@ def get_db_client():
     return bigquery.Client(credentials=creds, project=key_dict["project_id"])
 
 @st.cache_data(ttl=3600)
-def get_seasons_list(dataset_id): # <--- 1. Ajout du paramètre
+def get_seasons_list(dataset_id):
     client = get_db_client()
-    # 2. On injecte le dataset_id dynamique dans la requête SQL
     query = f"SELECT DISTINCT season FROM `{client.project}.{dataset_id}.matchs_clean` ORDER BY season DESC"
     return client.query(query).to_dataframe()['season'].tolist()
 
 @st.cache_data(ttl=600)
-def load_data_complete(season_name, history_seasons, dataset_id): # <--- 1. Ajout du paramètre
+def load_data_complete(season_name, history_seasons, dataset_id):
     client = get_db_client()
     p = client.project
-    d = dataset_id # Raccourci pour le nom du dataset
+    d = dataset_id
     
-    # 2. On remplace partout 'historic_datasets' par {d}
     q_curr = f"SELECT * FROM `{p}.{d}.matchs_clean` WHERE season = '{season_name}' ORDER BY date ASC"
     df_curr = client.query(q_curr).to_dataframe()
     
@@ -116,7 +122,6 @@ def load_data_complete(season_name, history_seasons, dataset_id): # <--- 1. Ajou
     try: df_ranks_Raw = client.query(q_ranks).to_dataframe()
     except: df_ranks_Raw = pd.DataFrame()
     
-    # Nettoyage Dates (reste identique)
     for df in [df_curr, df_hist, df_class]:
         if not df.empty:
             for col in ['date', 'match_timestamp']:
@@ -125,7 +130,6 @@ def load_data_complete(season_name, history_seasons, dataset_id): # <--- 1. Ajou
     return df_curr, df_hist, df_class, df_ranks_Raw
 
 # --- LOGIQUE MÉTIER ---
-
 def calculate_global_stats(df):
     if df.empty: return {}
     nb = len(df)
@@ -142,18 +146,15 @@ def calculate_global_stats(df):
 def get_team_form_html(df_matchs, team, limit=5):
     matches = df_matchs[((df_matchs['home_team'] == team) | (df_matchs['away_team'] == team)) & (df_matchs['date'] < pd.Timestamp.now())].sort_values('date', ascending=False).head(limit)
     matches = matches.sort_values('date', ascending=True) 
-    
     html = '<div style="display:flex; align-items:center;">'
     for _, r in matches.iterrows():
         is_h = r['home_team'] == team
         res, cls, flame = 'D', 'loss', ''
         diff = abs(r['full_time_home_goals'] - r['full_time_away_goals'])
-        
         if r['full_time_result'] == 'D': res, cls = 'N', 'draw'
         elif (is_h and r['full_time_result']=='H') or (not is_h and r['full_time_result']=='A'):
             res, cls = 'V', 'win'
             if diff >= 3: flame = "🔥"
-            
         opp = r['away_team'] if is_h else r['home_team']
         sc = f"{int(r['full_time_home_goals'])}-{int(r['full_time_away_goals'])}"
         html += f'<div class="form-badge {cls}" title="vs {opp} ({sc})">{res}{flame}</div>'
@@ -163,23 +164,19 @@ def get_team_form_html(df_matchs, team, limit=5):
 def calculate_advanced_stats_and_betting(df, team, stake=10):
     df_t = df[(df['home_team'] == team) | (df['away_team'] == team)].copy()
     if df_t.empty: return None, None
-    
     shots = 0; target = 0; yel = 0; red = 0
     strats = {'Victoire':0, 'Nul':0, 'Défaite':0, 'Over 2.5':0, 'Under 2.5':0} 
     invest = {k:0 for k in strats} 
-    
     for _, r in df_t.iterrows():
         is_h = r['home_team'] == team
         shots += r['home_shots'] if is_h else r['away_shots']
         target += r['home_shots_on_target'] if is_h else r['away_shots_on_target']
         yel += r['home_yellow_cards'] if is_h else r['away_yellow_cards']
         red += r['home_red_cards'] if is_h else r['away_red_cards']
-        
         res = r['full_time_result']
         goals = r['full_time_home_goals'] + r['full_time_away_goals']
         ho, do, ao = r.get('bet365_home_win_odds', 0), r.get('bet365_draw_odds', 0), r.get('bet365_away_win_odds', 0)
         o25, u25 = r.get('bet365_over_25_goals', 0), r.get('bet365_under_25_goals', 0)
-        
         if pd.notna(ho) and ho:
             invest['Victoire'] += stake; invest['Nul'] += stake; invest['Défaite'] += stake
             if (is_h and res=='H') or (not is_h and res=='A'): strats['Victoire'] += (ho if is_h else ao)*stake - stake
@@ -188,14 +185,12 @@ def calculate_advanced_stats_and_betting(df, team, stake=10):
             else: strats['Nul'] -= stake
             if (is_h and res=='A') or (not is_h and res=='H'): strats['Défaite'] += (ao if is_h else ho)*stake - stake
             else: strats['Défaite'] -= stake
-            
         if pd.notna(o25) and o25:
             invest['Over 2.5'] += stake; invest['Under 2.5'] += stake
             if goals > 2.5: strats['Over 2.5'] += (o25*stake) - stake
             else: strats['Over 2.5'] -= stake
             if goals < 2.5: strats['Under 2.5'] += (u25*stake) - stake
             else: strats['Under 2.5'] -= stake
-            
     nb = len(df_t)
     stats = {'avg_shots': shots/nb, 'avg_target': target/nb, 'avg_yellow': yel/nb, 'avg_red': red/nb}
     res_df = pd.DataFrame([{'Type': k, 'Profit': v, 'ROI': (v/invest[k]*100) if invest[k]>0 else 0} for k, v in strats.items()])
@@ -255,41 +250,6 @@ def calculate_match_probabilities_detailed(att_h, def_h, att_a, def_a, avg_h, av
             if p > max_p: max_p = p; exact = (i, j)
     return {'win': win*100, 'draw': draw*100, 'loss': loss*100, 'exact': exact, 'xg': (mu_h, mu_a), 'u25': u25*100, 'o25': (1-u25)*100}
 
-def get_probabilities_table(df_history, my_team, teams_list, mode="Global"):
-    if df_history.empty: return pd.DataFrame()
-    avg_h = df_history['full_time_home_goals'].mean()
-    avg_a = df_history['full_time_away_goals'].mean()
-    my_home = df_history[df_history['home_team'] == my_team]
-    my_away = df_history[df_history['away_team'] == my_team]
-    if my_home.empty or my_away.empty: return pd.DataFrame()
-    
-    att_h_my = my_home['full_time_home_goals'].mean() / avg_h
-    def_h_my = my_home['full_time_away_goals'].mean() / avg_a
-    att_a_my = my_away['full_time_away_goals'].mean() / avg_a
-    def_a_my = my_away['full_time_home_goals'].mean() / avg_h
-    
-    rows = []
-    for opp in teams_list:
-        if opp == my_team: continue
-        opp_home = df_history[df_history['home_team'] == opp]
-        opp_away = df_history[df_history['away_team'] == opp]
-        if opp_home.empty or opp_away.empty: continue
-        att_h_opp = opp_home['full_time_home_goals'].mean() / avg_h
-        def_h_opp = opp_home['full_time_away_goals'].mean() / avg_a
-        att_a_opp = opp_away['full_time_away_goals'].mean() / avg_a
-        def_a_opp = opp_away['full_time_home_goals'].mean() / avg_h
-        
-        res_h = calculate_match_probabilities_detailed(att_h_my, def_h_my, att_a_opp, def_a_opp, avg_h, avg_a)
-        res_a = calculate_match_probabilities_detailed(att_h_opp, def_h_opp, att_a_my, def_a_my, avg_h, avg_a)
-        
-        if mode == "Domicile": rows.append({'Adversaire': opp, 'Victoire': res_h['win'], 'Nul': res_h['draw'], 'Défaite': res_h['loss']})
-        elif mode == "Extérieur": rows.append({'Adversaire': opp, 'Victoire': res_a['loss'], 'Nul': res_a['draw'], 'Défaite': res_a['win']})
-        else: rows.append({'Adversaire': opp, 'Victoire': (res_h['win']+res_a['loss'])/2, 'Nul': (res_h['draw']+res_a['draw'])/2, 'Défaite': (res_h['loss']+res_a['win'])/2})
-            
-    df_res = pd.DataFrame(rows)
-    if not df_res.empty: df_res = df_res.set_index('Adversaire').applymap(lambda x: f"{x:.1f}%")
-    return df_res
-
 def simulate_season_end(df_played, df_history, teams_list):
     played_pairs = set(zip(df_played['home_team'], df_played['away_team']))
     all_pairs = set(itertools.permutations(teams_list, 2))
@@ -345,29 +305,14 @@ def get_historical_chart_data(df, metric, granularity):
     elif granularity == 'Équipe (Moyenne Saison)': return full.groupby(['team', 'season'])['value'].mean().reset_index()
     else: return full.groupby(['date'])['value'].mean().reset_index()
 
+# --- FILTRES GLOBAUX ---
 st.sidebar.markdown("---")
-# --- NOUVEAU : SWITCHER DEV/PROD ---
-# On ajoute un bouton toggle pour activer le mode développeur
-use_dev_mode = st.sidebar.toggle("🛠️ Mode Développeur", value=False)
-
-# Si activé, on tape dans la table _dev, sinon dans la table normale
-TARGET_DATASET = "historic_datasets_dev" if use_dev_mode else "historic_datasets"
-
-if use_dev_mode:
-    st.sidebar.warning(f"⚠️ Source : {TARGET_DATASET}")
-# -----------------------------------
-
 st.sidebar.title("🔍 Filtres")
-
-# 1. Appel modifié avec le dataset dynamique
 all_seasons = get_seasons_list(TARGET_DATASET) 
-
 selected_seasons = st.sidebar.multiselect("Historique (Poisson)", all_seasons, default=all_seasons[:3])
 focus_season = sorted(selected_seasons, reverse=True)[0] if selected_seasons else all_seasons[0]
 
-# 2. Appel modifié avec le dataset dynamique
 df_curr, df_hist, df_class, df_ranks_raw = load_data_complete(focus_season, selected_seasons, TARGET_DATASET)
-
 teams = sorted(df_curr['home_team'].unique())
 df_rank_matrix = process_rank_history(df_ranks_raw, df_hist)
 
@@ -431,7 +376,6 @@ if page == "Dashboard":
         k3.markdown(f'<div class="metric-card"><div class="metric-label">Buts Pour</div><div class="metric-value">{int(stats_team["total_bp"])}</div></div>', unsafe_allow_html=True)
         k4.markdown(f'<div class="metric-card"><div class="metric-label">Diff.</div><div class="metric-value" style="color:white !important">{int(stats_team["total_diff"]):+d}</div></div>', unsafe_allow_html=True)
         
-        # Stats & Paris
         st.subheader("📈 Stats Jeu & Paris Sportifs")
         st.markdown("""<div class="insight-box">💡 <b>Betting :</b> Simulation de rentabilité si vous aviez misé 10€ sur chaque match de cette équipe cette saison.</div>""", unsafe_allow_html=True)
         
@@ -561,13 +505,8 @@ if page == "Dashboard":
     st.markdown("---")
     st.subheader("🏆 Classement Live")
     
-    # Application Style Couleur Classement
-    def style_standings(val):
-        return ['background-color: rgba(46, 204, 113, 0.2)']*len(val) if val.name <= 4 else ['background-color: rgba(231, 76, 60, 0.2)']*len(val) if val.name >= 16 else ['']*len(val)
-
-    # Note: On affiche le dataframe trié par rang
+    # NOTE: Application simple sans styler complexe pour éviter les erreurs de dépendances
     df_show = df_snap[['rang', 'equipe', 'total_points', 'total_diff', 'total_V', 'total_N', 'total_D']].set_index('rang').sort_index()
-    # On utilise st.dataframe simple pour éviter les erreurs de style complexes, mais on peut tenter un style simple
     st.dataframe(df_show, use_container_width=True)
 
 # =================================================================================
