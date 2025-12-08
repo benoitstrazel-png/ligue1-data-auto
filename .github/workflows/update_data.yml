@@ -28,4 +28,6 @@ jobs:
         env:
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          # Si la branche est 'main', on met 'prod', sinon 'dev'
+          ENV_TYPE: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
         run: python main.py

@@ -89,35 +89,34 @@ def get_db_client():
     return bigquery.Client(credentials=creds, project=key_dict["project_id"])
 
 @st.cache_data(ttl=3600)
-def get_seasons_list():
+def get_seasons_list(dataset_id): # <--- 1. Ajout du paramètre
     client = get_db_client()
-    query = f"SELECT DISTINCT season FROM `{client.project}.historic_datasets.matchs_clean` ORDER BY season DESC"
+    # 2. On injecte le dataset_id dynamique dans la requête SQL
+    query = f"SELECT DISTINCT season FROM `{client.project}.{dataset_id}.matchs_clean` ORDER BY season DESC"
     return client.query(query).to_dataframe()['season'].tolist()
 
 @st.cache_data(ttl=600)
-def load_data_complete(season_name, history_seasons):
+def load_data_complete(season_name, history_seasons, dataset_id): # <--- 1. Ajout du paramètre
     client = get_db_client()
     p = client.project
+    d = dataset_id # Raccourci pour le nom du dataset
     
-    # 1. Saison Focus
-    q_curr = f"SELECT * FROM `{p}.historic_datasets.matchs_clean` WHERE season = '{season_name}' ORDER BY date ASC"
+    # 2. On remplace partout 'historic_datasets' par {d}
+    q_curr = f"SELECT * FROM `{p}.{d}.matchs_clean` WHERE season = '{season_name}' ORDER BY date ASC"
     df_curr = client.query(q_curr).to_dataframe()
     
-    # 2. Historique Multi-Saisons
     s_str = "', '".join(history_seasons)
-    q_hist = f"SELECT * FROM `{p}.historic_datasets.matchs_clean` WHERE season IN ('{s_str}')"
+    q_hist = f"SELECT * FROM `{p}.{d}.matchs_clean` WHERE season IN ('{s_str}')"
     df_hist = client.query(q_hist).to_dataframe()
     
-    # 3. Classement Live
-    q_class = f"SELECT * FROM `{p}.historic_datasets.classement_live` WHERE saison = '{season_name}' ORDER BY journee_team ASC"
+    q_class = f"SELECT * FROM `{p}.{d}.classement_live` WHERE saison = '{season_name}' ORDER BY journee_team ASC"
     df_class = client.query(q_class).to_dataframe()
     
-    # 4. Historique Rank vs Rank (Alias 'saison' -> 'season')
-    q_ranks = f"SELECT saison as season, journee_team, equipe as team, total_points FROM `{p}.historic_datasets.classement_live`"
+    q_ranks = f"SELECT saison as season, journee_team, equipe as team, total_points FROM `{p}.{d}.classement_live`"
     try: df_ranks_Raw = client.query(q_ranks).to_dataframe()
     except: df_ranks_Raw = pd.DataFrame()
     
-    # Nettoyage Dates
+    # Nettoyage Dates (reste identique)
     for df in [df_curr, df_hist, df_class]:
         if not df.empty:
             for col in ['date', 'match_timestamp']:
@@ -346,29 +345,29 @@ def get_historical_chart_data(df, metric, granularity):
     elif granularity == 'Équipe (Moyenne Saison)': return full.groupby(['team', 'season'])['value'].mean().reset_index()
     else: return full.groupby(['date'])['value'].mean().reset_index()
 
-# --- NAVIGATION ---
-st.sidebar.title("Navigation")
-page = st.sidebar.radio("Menu", ["Dashboard", "Classement Prédictif"])
-
 st.sidebar.markdown("---")
-# Ajout logo Betclic Sidebar
-betclic_logo = "https://upload.wikimedia.org/wikipedia/commons/3/36/Logo_Betclic.svg"
-st.sidebar.markdown(f"""
-    <div style="text-align: center; margin-bottom: 20px;">
-        <a href="https://www.betclic.fr" target="_blank">
-            <img src="{betclic_logo}" width="140" style="background-color: white; padding: 10px; border-radius: 5px;">
-        </a>
-        <p style="color: #CCC; font-size: 0.8rem; margin-top: 5px;">Partenaire Paris Sportifs</p>
-    </div>
-""", unsafe_allow_html=True)
+# --- NOUVEAU : SWITCHER DEV/PROD ---
+# On ajoute un bouton toggle pour activer le mode développeur
+use_dev_mode = st.sidebar.toggle("🛠️ Mode Développeur", value=False)
 
-st.sidebar.markdown("---")
+# Si activé, on tape dans la table _dev, sinon dans la table normale
+TARGET_DATASET = "historic_datasets_dev" if use_dev_mode else "historic_datasets"
+
+if use_dev_mode:
+    st.sidebar.warning(f"⚠️ Source : {TARGET_DATASET}")
+# -----------------------------------
+
 st.sidebar.title("🔍 Filtres")
-all_seasons = get_seasons_list()
+
+# 1. Appel modifié avec le dataset dynamique
+all_seasons = get_seasons_list(TARGET_DATASET) 
+
 selected_seasons = st.sidebar.multiselect("Historique (Poisson)", all_seasons, default=all_seasons[:3])
 focus_season = sorted(selected_seasons, reverse=True)[0] if selected_seasons else all_seasons[0]
 
-df_curr, df_hist, df_class, df_ranks_raw = load_data_complete(focus_season, selected_seasons)
+# 2. Appel modifié avec le dataset dynamique
+df_curr, df_hist, df_class, df_ranks_raw = load_data_complete(focus_season, selected_seasons, TARGET_DATASET)
+
 teams = sorted(df_curr['home_team'].unique())
 df_rank_matrix = process_rank_history(df_ranks_raw, df_hist)
 

@@ -10,7 +10,15 @@ from pandas_gbq import to_gbq
 
 # --- CONFIGURATION ---
 PROJECT_ID = os.environ["GCP_PROJECT_ID"]
-DATASET_ID = "historic_datasets"
+
+# Détection de l'environnement (Par défaut 'dev' pour la sécurité en local, 'prod' via GitHub)
+ENV_TYPE = os.environ.get("ENV_TYPE", "dev") 
+
+# Sélection du Dataset en fonction de l'env
+DATASET_ID = "historic_datasets" if ENV_TYPE == "prod" else "historic_datasets_dev"
+
+print(f"🔧 Environnement détecté : {ENV_TYPE.upper()} -> Dataset : {DATASET_ID}")
+
 TABLE_MATCHS = f"{DATASET_ID}.matchs_clean"
 TABLE_CALENDRIER = f"{DATASET_ID}.referentiel_calendrier"
 
@@ -150,9 +158,16 @@ def update_standings_table(credentials, project_id):
     from google.cloud import bigquery
     client = bigquery.Client(credentials=credentials, project=project_id)
     try:
+        # On lit le fichier SQL de base
         with open("update_classement.sql", "r") as file:
-            client.query(file.read()).result()
-        print("✅ Classement Live mis à jour.")
+            sql_query = file.read()
+        
+        # SI ON EST EN DEV, ON REMPLACE LE NOM DU DATASET DANS LA REQUÊTE SQL
+        if ENV_TYPE != "prod":
+            sql_query = sql_query.replace("historic_datasets", "historic_datasets_dev")
+            
+        client.query(sql_query).result()
+        print(f"✅ Classement Live mis à jour ({ENV_TYPE}).")
     except Exception as e:
         print(f"⚠️ Warning SQL Classement : {e}")
 
