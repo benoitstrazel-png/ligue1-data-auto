@@ -9,24 +9,10 @@ from scipy.stats import poisson
 import requests
 import itertools
 
-# --- 1. CONFIGURATION DE LA PAGE (Doit être la première commande Streamlit) ---
+# --- 1. CONFIGURATION DE LA PAGE (Toujours au début) ---
 st.set_page_config(page_title="Ligue 1 Data Center", layout="wide", page_icon="⚽")
 
-# --- 2. CRÉATION DU MENU DE NAVIGATION (DÉPLACÉ ICI POUR ÉVITER L'ERREUR) ---
-# En le mettant tout en haut, on est sûr que la variable 'page' existe toujours.
-st.sidebar.title("Navigation")
-page = st.sidebar.radio("Menu", ["Dashboard", "Classement Prédictif"])
-
-st.sidebar.markdown("---")
-
-# --- 3. MODE DÉVELOPPEUR (SWITCHER) ---
-use_dev_mode = st.sidebar.toggle("🛠️ Mode Développeur", value=False)
-TARGET_DATASET = "historic_datasets_dev" if use_dev_mode else "historic_datasets"
-
-if use_dev_mode:
-    st.sidebar.warning(f"⚠️ Source : {TARGET_DATASET}")
-
-# --- STYLE CSS AVANCÉ ---
+# --- 2. STYLE CSS ---
 st.markdown("""
     <style>
     .stApp { background-color: #1A1C23; }
@@ -80,6 +66,19 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# --- 3. CRÉATION DU MENU DE NAVIGATION (LA CORRECTION EST ICI) ---
+# Nous définissons 'page' et 'TARGET_DATASET' tout en haut pour éviter l'erreur.
+st.sidebar.title("Navigation")
+page = st.sidebar.radio("Menu", ["Dashboard", "Classement Prédictif"])
+
+st.sidebar.markdown("---")
+# Switcher Dev/Prod
+use_dev_mode = st.sidebar.toggle("🛠️ Mode Développeur", value=False)
+TARGET_DATASET = "historic_datasets_dev" if use_dev_mode else "historic_datasets"
+
+if use_dev_mode:
+    st.sidebar.warning(f"⚠️ Source : {TARGET_DATASET}")
+
 # Logo Partenaire
 betclic_logo = "https://upload.wikimedia.org/wikipedia/commons/3/36/Logo_Betclic.svg"
 st.sidebar.markdown(f"""
@@ -91,7 +90,7 @@ st.sidebar.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
-# --- BQ LOAD FUNCTIONS ---
+# --- 4. FONCTIONS DE CHARGEMENT ---
 @st.cache_resource
 def get_db_client():
     key_dict = st.secrets["gcp_service_account"]
@@ -131,7 +130,7 @@ def load_data_complete(season_name, history_seasons, dataset_id):
                 
     return df_curr, df_hist, df_class, df_ranks_Raw
 
-# --- LOGIQUE MÉTIER ---
+# --- 5. LOGIQUE MÉTIER ---
 def calculate_global_stats(df):
     if df.empty: return {}
     nb = len(df)
@@ -307,7 +306,7 @@ def get_historical_chart_data(df, metric, granularity):
     elif granularity == 'Équipe (Moyenne Saison)': return full.groupby(['team', 'season'])['value'].mean().reset_index()
     else: return full.groupby(['date'])['value'].mean().reset_index()
 
-# --- FILTRES GLOBAUX ---
+# --- 6. CHARGEMENT DES DONNÉES FILTRÉES ---
 st.sidebar.markdown("---")
 st.sidebar.title("🔍 Filtres")
 all_seasons = get_seasons_list(TARGET_DATASET) 
@@ -508,8 +507,13 @@ if page == "Dashboard":
     st.markdown("---")
     st.subheader("🏆 Classement Live")
     
-    # NOTE: Application simple sans styler complexe pour éviter les erreurs de dépendances
+    # Application Style Couleur Classement
+    def style_standings(val):
+        return ['background-color: rgba(46, 204, 113, 0.2)']*len(val) if val.name <= 4 else ['background-color: rgba(231, 76, 60, 0.2)']*len(val) if val.name >= 16 else ['']*len(val)
+
+    # Note: On affiche le dataframe trié par rang
     df_show = df_snap[['rang', 'equipe', 'total_points', 'total_diff', 'total_V', 'total_N', 'total_D']].set_index('rang').sort_index()
+    # On utilise st.dataframe simple pour éviter les erreurs de style complexes, mais on peut tenter un style simple
     st.dataframe(df_show, use_container_width=True)
 
 # =================================================================================
