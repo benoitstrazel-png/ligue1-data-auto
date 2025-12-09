@@ -257,58 +257,6 @@ def calculate_nemesis_stats(df, team):
     agg['losses'] = agg['result'].apply(lambda x: x.count('D'))
     return agg
 
-def get_spider_data_normalized(df, team):
-    # Sécurité : Si le dataframe est vide ou nul
-    if df is None or df.empty:
-        return [], [], []
-
-    metrics = {
-        'Buts': 'full_time_home_goals', 'Tirs': 'home_shots', 
-        'Cadrés': 'home_shots_on_target', 'Corners': 'home_corners'
-    }
-    
-    # Vérification que les colonnes existent
-    for col in metrics.values():
-        if col not in df.columns:
-            return [], [], []
-
-    # Moyenne Ligue
-    avg_league = {}
-    for k, v in metrics.items():
-        v_away = v.replace('home', 'away')
-        # Correction de la formule : (Moyenne Dom + Moyenne Ext) / 2
-        # On utilise fillna(0) pour éviter les NaN qui propagent des erreurs
-        m_home = df[v].mean()
-        m_away = df[v_away].mean() if v_away in df.columns else 0
-        avg_league[k] = (m_home + m_away) / 2
-        
-    # Moyenne Equipe
-    df_t = df[df['home_team'] == team]
-    if df_t.empty: 
-        return [], [], []
-    
-    team_vals = []
-    league_vals = []
-    labels = []
-    
-    for k, v in metrics.items():
-        val = df_t[v].mean()
-        ref_avg = avg_league.get(k, 1)
-        
-        # Sécurité Division par Zéro
-        if ref_avg == 0: 
-            ref_avg = 1
-            
-        # Normalisation sur 100 (Ligue = 50)
-        norm_t = min(100, (val / ref_avg) * 50)
-        norm_l = 50 
-        
-        team_vals.append(norm_t)
-        league_vals.append(norm_l)
-        labels.append(k)
-        
-    return labels, team_vals, league_vals
-
 def calculate_advanced_stats_and_betting(df, team, stake=10):
     df_t = df[(df['home_team'] == team) | (df['away_team'] == team)].copy()
     if df_t.empty: return None, None
@@ -342,8 +290,6 @@ def apply_standings_style(df):
     def style_rows(row):
         rank = row.name
         style = ''
-        
-        # Définition de la couleur selon le classement
         if rank <= 4: 
             style = 'background-color: rgba(66, 133, 244, 0.6); color: white;' 
         elif rank == 5: 
@@ -353,14 +299,13 @@ def apply_standings_style(df):
         elif rank >= 16: 
             style = 'background-color: rgba(231, 76, 60, 0.5); color: white;' 
         
-        # LE FIX EST ICI : On retourne une liste de styles de la même longueur que la ligne
+        # CORRECTIF CRITIQUE : Retourner une liste, pas un string
         return [style] * len(row)
 
     df_styled = df.copy()
-    # Ajout de la couronne
     if 1 in df_styled.index: 
         df_styled.loc[1, 'equipe'] = "👑 " + df_styled.loc[1, 'equipe']
-        
+    
     return df_styled.style.apply(style_rows, axis=1)
 
 def simulate_season_end(df_played, df_history, teams_list):
@@ -386,18 +331,6 @@ def simulate_season_end(df_played, df_history, teams_list):
         res.append({'equipe': h, 'pts': ph})
         res.append({'equipe': a, 'pts': pa})
     return pd.DataFrame(res)
-
-def apply_standings_style(df):
-    def style_rows(row):
-        rank = row.name
-        if rank <= 4: return 'background-color: rgba(66, 133, 244, 0.6); color: white;' 
-        elif rank == 5: return 'background-color: rgba(255, 165, 0, 0.6); color: white;' 
-        elif rank == 6: return 'background-color: rgba(46, 204, 113, 0.6); color: white;' 
-        elif rank >= 16: return 'background-color: rgba(231, 76, 60, 0.5); color: white;' 
-        return ''
-    df_styled = df.copy()
-    if 1 in df_styled.index: df_styled.loc[1, 'equipe'] = "👑 " + df_styled.loc[1, 'equipe']
-    return df_styled.style.apply(style_rows, axis=1)
 
 def prepare_calendar_table(df_cal, df_history):
     if df_cal.empty: return pd.DataFrame()
@@ -565,6 +498,7 @@ if page == "Dashboard":
     st.markdown("---")
     st.subheader("🏆 Classement Live")
     df_show = df_snap[['rang', 'equipe', 'total_points', 'total_diff', 'total_V', 'total_N', 'total_D']].set_index('rang').sort_index()
+    # Utilisation correcte de la fonction
     st.dataframe(apply_standings_style(df_show), use_container_width=True)
 
 elif page == "Classement Prédictif":
