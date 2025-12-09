@@ -340,8 +340,10 @@ def calculate_advanced_stats_and_betting(df, team, stake=10):
 
 def apply_standings_style(df):
     def style_rows(row):
-        rank = row.name
+        rank = row.name  # L'index est le rang
         style = ''
+        
+        # Définition de la couleur selon le classement
         if rank <= 4: 
             style = 'background-color: rgba(66, 133, 244, 0.6); color: white;' 
         elif rank == 5: 
@@ -350,32 +352,16 @@ def apply_standings_style(df):
             style = 'background-color: rgba(46, 204, 113, 0.6); color: white;' 
         elif rank >= 16: 
             style = 'background-color: rgba(231, 76, 60, 0.5); color: white;' 
-        
-        # CORRECTION ICI : On retourne une liste de la même taille que la ligne
+            
+        # CORRECTION : On retourne une liste contenant le style répété pour chaque colonne
         return [style] * len(row)
 
     df_styled = df.copy()
+    # Ajout de la couronne pour le 1er
     if 1 in df_styled.index: 
         df_styled.loc[1, 'equipe'] = "👑 " + df_styled.loc[1, 'equipe']
-    
+        
     return df_styled.style.apply(style_rows, axis=1)
-        
-    # Moyenne Equipe
-    df_t = df[df['home_team'] == team] # Simplification domicile pour le style
-    if df_t.empty: return None, None, None
-    
-    team_vals = []
-    league_vals = []
-    labels = []
-    
-    for k, v in metrics.items():
-        val = df_t[v].mean()
-        # Normalisation sur 100 par rapport à la ligue * 1.5
-        norm_t = min(100, (val / avg_league[k]) * 50)
-        norm_l = 50 # La ligue est la référence à 50
-        team_vals.append(norm_t); league_vals.append(norm_l); labels.append(k)
-        
-    return labels, team_vals, league_vals
 
 def simulate_season_end(df_played, df_history, teams_list):
     played_pairs = set(zip(df_played['home_team'], df_played['away_team']))
