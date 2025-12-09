@@ -340,7 +340,7 @@ def calculate_advanced_stats_and_betting(df, team, stake=10):
 
 def apply_standings_style(df):
     def style_rows(row):
-        rank = row.name  # L'index est le rang
+        rank = row.name
         style = ''
         
         # Définition de la couleur selon le classement
@@ -352,12 +352,12 @@ def apply_standings_style(df):
             style = 'background-color: rgba(46, 204, 113, 0.6); color: white;' 
         elif rank >= 16: 
             style = 'background-color: rgba(231, 76, 60, 0.5); color: white;' 
-            
-        # CORRECTION : On retourne une liste contenant le style répété pour chaque colonne
+        
+        # LE FIX EST ICI : On retourne une liste de styles de la même longueur que la ligne
         return [style] * len(row)
 
     df_styled = df.copy()
-    # Ajout de la couronne pour le 1er
+    # Ajout de la couronne
     if 1 in df_styled.index: 
         df_styled.loc[1, 'equipe'] = "👑 " + df_styled.loc[1, 'equipe']
         
