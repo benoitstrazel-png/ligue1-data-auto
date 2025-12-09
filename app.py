@@ -188,6 +188,58 @@ def get_team_form_html(df_matchs, team, limit=5):
     html += '</div>'
     return html
 
+def get_spider_data_normalized(df, team):
+    # 1. Sécurité : Si le dataframe est vide ou None, on renvoie 3 listes vides
+    if df is None or df.empty:
+        return [], [], []
+
+    metrics = {
+        'Buts': 'full_time_home_goals', 'Tirs': 'home_shots', 
+        'Cadrés': 'home_shots_on_target', 'Corners': 'home_corners'
+    }
+    
+    # 2. Vérification que les colonnes nécessaires existent
+    for col in metrics.values():
+        if col not in df.columns:
+            return [], [], []
+
+    # 3. Calcul des Moyennes Ligue (Evite les crashs si données manquantes)
+    avg_league = {}
+    for k, v in metrics.items():
+        v_away = v.replace('home', 'away')
+        # On utilise fillna(0) pour éviter de propager des NaN
+        m_home = df[v].mean()
+        m_away = df[v_away].mean() if v_away in df.columns else 0
+        avg_league[k] = (m_home + m_away) / 2
+        
+    # 4. Filtrage pour l'équipe
+    df_t = df[df['home_team'] == team]
+    if df_t.empty: 
+        return [], [], []
+    
+    team_vals = []
+    league_vals = []
+    labels = []
+    
+    # 5. Construction des données du Radar
+    for k, v in metrics.items():
+        val = df_t[v].mean()
+        ref_avg = avg_league.get(k, 1)
+        
+        # Sécurité Division par Zéro
+        if ref_avg == 0: ref_avg = 1
+            
+        # Normalisation (Ligue = 50)
+        norm_t = min(100, (val / ref_avg) * 50)
+        norm_l = 50 
+        
+        team_vals.append(norm_t)
+        league_vals.append(norm_l)
+        labels.append(k)
+        
+    # 6. Toujours renvoyer 3 valeurs
+    return labels, team_vals, league_vals
+
 def calculate_nemesis_stats(df, team):
     stats = []
     df_team = df[(df['home_team'] == team) | (df['away_team'] == team)]
