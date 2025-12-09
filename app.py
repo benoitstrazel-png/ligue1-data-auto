@@ -233,16 +233,27 @@ def calculate_advanced_stats_and_betting(df, team, stake=10):
     res_df = pd.DataFrame([{'Type': k, 'Profit': v} for k, v in strats.items() if invest[k]>0])
     return stats, res_df
 
-def get_spider_data_normalized(df, team):
-    # Calcul simplifié pour le radar
-    metrics = {
-        'Buts': 'full_time_home_goals', 'Tirs': 'home_shots', 
-        'Cadrés': 'home_shots_on_target', 'Corners': 'home_corners'
-    }
-    # Moyenne Ligue
-    avg_league = {}
-    for k, v in metrics.items():
-        avg_league[k] = df[v].mean() + df[v.replace('home', 'away')].mean() / 2
+def apply_standings_style(df):
+    def style_rows(row):
+        rank = row.name
+        style = ''
+        if rank <= 4: 
+            style = 'background-color: rgba(66, 133, 244, 0.6); color: white;' 
+        elif rank == 5: 
+            style = 'background-color: rgba(255, 165, 0, 0.6); color: white;' 
+        elif rank == 6: 
+            style = 'background-color: rgba(46, 204, 113, 0.6); color: white;' 
+        elif rank >= 16: 
+            style = 'background-color: rgba(231, 76, 60, 0.5); color: white;' 
+        
+        # CORRECTION ICI : On retourne une liste de la même taille que la ligne
+        return [style] * len(row)
+
+    df_styled = df.copy()
+    if 1 in df_styled.index: 
+        df_styled.loc[1, 'equipe'] = "👑 " + df_styled.loc[1, 'equipe']
+    
+    return df_styled.style.apply(style_rows, axis=1)
         
     # Moyenne Equipe
     df_t = df[df['home_team'] == team] # Simplification domicile pour le style
