@@ -74,7 +74,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. NAVIGATION (Au début pour éviter les erreurs) ---
+# --- 3. NAVIGATION ---
 st.sidebar.title("Navigation")
 page = st.sidebar.radio("Menu", ["Dashboard", "Classement Prédictif"])
 
@@ -189,7 +189,7 @@ def get_team_form_html(df_matchs, team, limit=5):
     return html
 
 def get_spider_data_normalized(df, team):
-    # 1. Sécurité : Si le dataframe est vide ou None, on renvoie 3 listes vides
+    # 1. Sécurité : Si le dataframe est vide ou None
     if df is None or df.empty:
         return [], [], []
 
@@ -198,16 +198,15 @@ def get_spider_data_normalized(df, team):
         'Cadrés': 'home_shots_on_target', 'Corners': 'home_corners'
     }
     
-    # 2. Vérification que les colonnes nécessaires existent
+    # 2. Vérification que les colonnes existent
     for col in metrics.values():
         if col not in df.columns:
             return [], [], []
 
-    # 3. Calcul des Moyennes Ligue (Evite les crashs si données manquantes)
+    # 3. Calcul des Moyennes Ligue
     avg_league = {}
     for k, v in metrics.items():
         v_away = v.replace('home', 'away')
-        # On utilise fillna(0) pour éviter de propager des NaN
         m_home = df[v].mean()
         m_away = df[v_away].mean() if v_away in df.columns else 0
         avg_league[k] = (m_home + m_away) / 2
@@ -237,7 +236,6 @@ def get_spider_data_normalized(df, team):
         league_vals.append(norm_l)
         labels.append(k)
         
-    # 6. Toujours renvoyer 3 valeurs
     return labels, team_vals, league_vals
 
 def calculate_nemesis_stats(df, team):
@@ -286,28 +284,6 @@ def calculate_advanced_stats_and_betting(df, team, stake=10):
     res_df = pd.DataFrame([{'Type': k, 'Profit': v} for k, v in strats.items() if invest[k]>0])
     return stats, res_df
 
-def apply_standings_style(df):
-    def style_rows(row):
-        rank = row.name
-        style = ''
-        if rank <= 4: 
-            style = 'background-color: rgba(66, 133, 244, 0.6); color: white;' 
-        elif rank == 5: 
-            style = 'background-color: rgba(255, 165, 0, 0.6); color: white;' 
-        elif rank == 6: 
-            style = 'background-color: rgba(46, 204, 113, 0.6); color: white;' 
-        elif rank >= 16: 
-            style = 'background-color: rgba(231, 76, 60, 0.5); color: white;' 
-        
-        # CORRECTIF CRITIQUE : Retourner une liste, pas un string
-        return [style] * len(row)
-
-    df_styled = df.copy()
-    if 1 in df_styled.index: 
-        df_styled.loc[1, 'equipe'] = "👑 " + df_styled.loc[1, 'equipe']
-    
-    return df_styled.style.apply(style_rows, axis=1)
-
 def simulate_season_end(df_played, df_history, teams_list):
     played_pairs = set(zip(df_played['home_team'], df_played['away_team']))
     all_pairs = set(itertools.permutations(teams_list, 2))
@@ -331,6 +307,28 @@ def simulate_season_end(df_played, df_history, teams_list):
         res.append({'equipe': h, 'pts': ph})
         res.append({'equipe': a, 'pts': pa})
     return pd.DataFrame(res)
+
+def apply_standings_style(df):
+    def style_rows(row):
+        rank = row.name
+        style = ''
+        if rank <= 4: 
+            style = 'background-color: rgba(66, 133, 244, 0.6); color: white;' 
+        elif rank == 5: 
+            style = 'background-color: rgba(255, 165, 0, 0.6); color: white;' 
+        elif rank == 6: 
+            style = 'background-color: rgba(46, 204, 113, 0.6); color: white;' 
+        elif rank >= 16: 
+            style = 'background-color: rgba(231, 76, 60, 0.5); color: white;' 
+        
+        # CORRECTIF CRITIQUE : Retourner une liste, pas un string
+        return [style] * len(row)
+
+    df_styled = df.copy()
+    if 1 in df_styled.index: 
+        df_styled.loc[1, 'equipe'] = "👑 " + df_styled.loc[1, 'equipe']
+    
+    return df_styled.style.apply(style_rows, axis=1)
 
 def prepare_calendar_table(df_cal, df_history):
     if df_cal.empty: return pd.DataFrame()
@@ -465,7 +463,7 @@ if page == "Dashboard":
                 r = predict_match_advanced(df_hist, my_team, o) 
                 if r: rows.append({'Adversaire': o, 'Victoire': r['win'], 'Nul': r['draw'], 'Défaite': r['loss']})
             if rows:
-                st.dataframe(pd.DataFrame(rows).set_index('Adversaire').style.format("{:.1f}%").background_gradient(subset=['Victoire'], cmap='Greens'), use_container_width=True)
+                st.dataframe(pd.DataFrame(rows).set_index('Adversaire').style.format("{:.1f}%").background_gradient(subset=['Victoire'], cmap='Greens'), width=None)
         else:
             res = predict_match_advanced(df_hist, th, ta)
             if res:
@@ -492,14 +490,14 @@ if page == "Dashboard":
     if not df_smart.empty:
         def style_cal(row):
             return ['', '', row['_bg_h'], row['_bg_d'], row['_bg_a'], '', '', '', '', '']
-        st.dataframe(df_smart.style.apply(style_cal, axis=1), column_config={"_bg_h":None, "_bg_d":None, "_bg_a":None}, use_container_width=True, hide_index=True)
+        st.dataframe(df_smart.style.apply(style_cal, axis=1), column_config={"_bg_h":None, "_bg_d":None, "_bg_a":None}, width=None, hide_index=True)
     else: st.info("Aucun match futur trouvé.")
 
     st.markdown("---")
     st.subheader("🏆 Classement Live")
     df_show = df_snap[['rang', 'equipe', 'total_points', 'total_diff', 'total_V', 'total_N', 'total_D']].set_index('rang').sort_index()
     # Utilisation correcte de la fonction
-    st.dataframe(apply_standings_style(df_show), use_container_width=True)
+    st.dataframe(apply_standings_style(df_show), width=None)
 
 elif page == "Classement Prédictif":
     st.markdown('<div class="main-title">🔮 CLASSEMENT FINAL PROJETÉ</div>', unsafe_allow_html=True)
@@ -514,4 +512,4 @@ elif page == "Classement Prédictif":
                 final = final.sort_values('Total Projeté', ascending=False).reset_index(drop=True)
                 final.index += 1
                 st.success("Projection terminée !")
-                st.dataframe(apply_standings_style(final), use_container_width=True, height=600)
+                st.dataframe(apply_standings_style(final), width=None, height=600)
