@@ -189,7 +189,7 @@ def get_team_form_html(df_matchs, team, limit=5):
     return html
 
 def get_spider_data_normalized(df, team):
-    # 1. Sécurité : Si le dataframe est vide ou None
+    # Sécurité : Si le dataframe est vide ou None
     if df is None or df.empty:
         return [], [], []
 
@@ -198,12 +198,12 @@ def get_spider_data_normalized(df, team):
         'Cadrés': 'home_shots_on_target', 'Corners': 'home_corners'
     }
     
-    # 2. Vérification que les colonnes existent
+    # Vérification que les colonnes existent
     for col in metrics.values():
         if col not in df.columns:
             return [], [], []
 
-    # 3. Calcul des Moyennes Ligue
+    # Calcul des Moyennes Ligue
     avg_league = {}
     for k, v in metrics.items():
         v_away = v.replace('home', 'away')
@@ -211,7 +211,7 @@ def get_spider_data_normalized(df, team):
         m_away = df[v_away].mean() if v_away in df.columns else 0
         avg_league[k] = (m_home + m_away) / 2
         
-    # 4. Filtrage pour l'équipe
+    # Filtrage pour l'équipe
     df_t = df[df['home_team'] == team]
     if df_t.empty: 
         return [], [], []
@@ -220,7 +220,7 @@ def get_spider_data_normalized(df, team):
     league_vals = []
     labels = []
     
-    # 5. Construction des données du Radar
+    # Construction des données du Radar
     for k, v in metrics.items():
         val = df_t[v].mean()
         ref_avg = avg_league.get(k, 1)
@@ -284,6 +284,28 @@ def calculate_advanced_stats_and_betting(df, team, stake=10):
     res_df = pd.DataFrame([{'Type': k, 'Profit': v} for k, v in strats.items() if invest[k]>0])
     return stats, res_df
 
+def apply_standings_style(df):
+    def style_rows(row):
+        rank = row.name
+        style = ''
+        if rank <= 4: 
+            style = 'background-color: rgba(66, 133, 244, 0.6); color: white;' 
+        elif rank == 5: 
+            style = 'background-color: rgba(255, 165, 0, 0.6); color: white;' 
+        elif rank == 6: 
+            style = 'background-color: rgba(46, 204, 113, 0.6); color: white;' 
+        elif rank >= 16: 
+            style = 'background-color: rgba(231, 76, 60, 0.5); color: white;' 
+        
+        # CORRECTIF CRITIQUE : Retourner une liste, pas un string
+        return [style] * len(row)
+
+    df_styled = df.copy()
+    if 1 in df_styled.index: 
+        df_styled.loc[1, 'equipe'] = "👑 " + df_styled.loc[1, 'equipe']
+    
+    return df_styled.style.apply(style_rows, axis=1)
+
 def simulate_season_end(df_played, df_history, teams_list):
     played_pairs = set(zip(df_played['home_team'], df_played['away_team']))
     all_pairs = set(itertools.permutations(teams_list, 2))
@@ -307,28 +329,6 @@ def simulate_season_end(df_played, df_history, teams_list):
         res.append({'equipe': h, 'pts': ph})
         res.append({'equipe': a, 'pts': pa})
     return pd.DataFrame(res)
-
-def apply_standings_style(df):
-    def style_rows(row):
-        rank = row.name
-        style = ''
-        if rank <= 4: 
-            style = 'background-color: rgba(66, 133, 244, 0.6); color: white;' 
-        elif rank == 5: 
-            style = 'background-color: rgba(255, 165, 0, 0.6); color: white;' 
-        elif rank == 6: 
-            style = 'background-color: rgba(46, 204, 113, 0.6); color: white;' 
-        elif rank >= 16: 
-            style = 'background-color: rgba(231, 76, 60, 0.5); color: white;' 
-        
-        # CORRECTIF CRITIQUE : Retourner une liste, pas un string
-        return [style] * len(row)
-
-    df_styled = df.copy()
-    if 1 in df_styled.index: 
-        df_styled.loc[1, 'equipe'] = "👑 " + df_styled.loc[1, 'equipe']
-    
-    return df_styled.style.apply(style_rows, axis=1)
 
 def prepare_calendar_table(df_cal, df_history):
     if df_cal.empty: return pd.DataFrame()
