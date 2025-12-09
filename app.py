@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 import numpy as np
 from scipy.stats import poisson
 import requests
+import itertools
 
 # --- 1. CONFIGURATION DE LA PAGE ---
 st.set_page_config(page_title="Ligue 1 Data Center", layout="wide", page_icon="⚽")
@@ -203,6 +204,58 @@ def calculate_nemesis_stats(df, team):
     agg['wins'] = agg['result'].apply(lambda x: x.count('V'))
     agg['losses'] = agg['result'].apply(lambda x: x.count('D'))
     return agg
+
+def get_spider_data_normalized(df, team):
+    # Sécurité : Si le dataframe est vide ou nul
+    if df is None or df.empty:
+        return [], [], []
+
+    metrics = {
+        'Buts': 'full_time_home_goals', 'Tirs': 'home_shots', 
+        'Cadrés': 'home_shots_on_target', 'Corners': 'home_corners'
+    }
+    
+    # Vérification que les colonnes existent
+    for col in metrics.values():
+        if col not in df.columns:
+            return [], [], []
+
+    # Moyenne Ligue
+    avg_league = {}
+    for k, v in metrics.items():
+        v_away = v.replace('home', 'away')
+        # Correction de la formule : (Moyenne Dom + Moyenne Ext) / 2
+        # On utilise fillna(0) pour éviter les NaN qui propagent des erreurs
+        m_home = df[v].mean()
+        m_away = df[v_away].mean() if v_away in df.columns else 0
+        avg_league[k] = (m_home + m_away) / 2
+        
+    # Moyenne Equipe
+    df_t = df[df['home_team'] == team]
+    if df_t.empty: 
+        return [], [], []
+    
+    team_vals = []
+    league_vals = []
+    labels = []
+    
+    for k, v in metrics.items():
+        val = df_t[v].mean()
+        ref_avg = avg_league.get(k, 1)
+        
+        # Sécurité Division par Zéro
+        if ref_avg == 0: 
+            ref_avg = 1
+            
+        # Normalisation sur 100 (Ligue = 50)
+        norm_t = min(100, (val / ref_avg) * 50)
+        norm_l = 50 
+        
+        team_vals.append(norm_t)
+        league_vals.append(norm_l)
+        labels.append(k)
+        
+    return labels, team_vals, league_vals
 
 def calculate_advanced_stats_and_betting(df, team, stake=10):
     df_t = df[(df['home_team'] == team) | (df['away_team'] == team)].copy()
