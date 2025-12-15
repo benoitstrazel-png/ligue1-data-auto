@@ -10,89 +10,49 @@ import requests
 import itertools
 
 # --- 1. CONFIGURATION DE LA PAGE ---
-st.set_page_config(page_title="Ligue 1 Data Center", layout="wide", page_icon="⚽")
+st.set_page_config(page_title="Ligue 1 Science & Bet", layout="wide", page_icon="🧪")
 
-# --- 2. STYLE CSS AVANCÉ (THEME SOMBRE) ---
+# --- 2. STYLE CSS AVANCÉ (SCIENTIFIC THEME) ---
 st.markdown("""
     <style>
-    .stApp { background-color: #1A1C23 !important; }
-    h1, h2, h3, h4, h5, p, span, div, label, .stDataFrame, .stTable, li { color: #FFFFFF !important; }
+    .stApp { background-color: #0E1117 !important; }
+    h1, h2, h3, h4, h5, p, span, div, label, .stDataFrame, .stTable, li { color: #E0E0E0 !important; }
     
     /* Titre Principal */
     .main-title {
         font-size: 3rem; font-weight: 900; text-transform: uppercase;
-        background: -webkit-linear-gradient(left, #DAE025, #FFFFFF);
+        background: -webkit-linear-gradient(left, #6C5CE7, #00CEC9);
         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
         margin-bottom: 20px;
     }
     
-    /* Cartes */
-    .metric-card {
-        background-color: #2C3E50; padding: 15px; border-radius: 12px;
-        text-align: center; border: 1px solid #444; margin-bottom: 10px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    /* Cartes KPI */
+    .kpi-card {
+        background-color: #1A1C24; border: 1px solid #333; border-radius: 8px;
+        padding: 15px; text-align: center; margin-bottom: 10px;
     }
-    .metric-value { font-size: 1.8rem; font-weight: 800; margin: 0; color: #2ECC71 !important; }
-    .metric-label { font-size: 0.9rem; color: #CCC !important; }
+    .kpi-val { font-size: 1.5rem; font-weight: bold; color: #00CEC9; }
+    .kpi-lbl { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; color: #888; }
     
-    /* Score & Conseils */
-    .score-card {
-        background: linear-gradient(135deg, #091C3E 0%, #1A1C23 100%);
-        border: 2px solid #DAE025; border-radius: 15px; padding: 20px;
-        text-align: center; margin-top: 10px;
+    /* Value Bet Highlights */
+    .value-bet {
+        border: 1px solid #00CEC9; background-color: rgba(0, 206, 201, 0.1);
+        padding: 10px; border-radius: 5px; margin-top: 5px;
     }
-    .score-display { font-size: 3rem; font-weight: bold; color: #FFFFFF !important; font-family: monospace; }
+    .ev-positive { color: #00CEC9 !important; font-weight: bold; }
+    .ev-negative { color: #FF7675 !important; }
     
-    .advice-box {
-        background-color: rgba(46, 204, 113, 0.1); border-left: 5px solid #2ECC71;
-        padding: 15px; margin-top: 10px; border-radius: 5px;
-    }
-    .insight-box {
-        background-color: rgba(218, 224, 37, 0.1); border-left: 5px solid #DAE025;
-        padding: 15px; margin-top: 10px; color: #FFFFFF; border-radius: 5px;
-        font-size: 0.9rem;
-    }
-    
-    /* Badges Forme */
-    .form-badge {
-        display: inline-block; width: 32px; height: 32px; line-height: 32px;
-        border-radius: 50%; text-align: center; font-weight: bold;
-        color: white !important; margin-right: 4px; font-size: 0.8rem;
-        border: 2px solid #1A1C23;
-    }
-    .win { background-color: #2ECC71; }
-    .draw { background-color: #95A5A6; }
-    .loss { background-color: #E74C3C; }
-    
-    /* Sidebar & Tableaux */
-    [data-testid="stSidebar"] { background-color: #091C3E !important; }
-    [data-testid="stSidebar"] * { color: #FFFFFF !important; }
-    [data-testid="stDataFrame"] { background-color: #2C3E50; }
-    
-    /* Tooltip Helper */
-    .tooltip-icon { font-size: 0.8rem; cursor: help; color: #DAE025; vertical-align: super; }
+    /* Tableaux */
+    [data-testid="stDataFrame"] { background-color: #1A1C24; border-radius: 8px; }
     </style>
 """, unsafe_allow_html=True)
 
 # --- 3. NAVIGATION ---
-st.sidebar.title("Navigation")
-page = st.sidebar.radio("Menu", ["Dashboard", "Classement Prédictif"])
-
+st.sidebar.title("🔬 Labo Foot")
+page = st.sidebar.radio("Navigation", ["Analyse Scientifique", "Simulateur Monte Carlo"])
 st.sidebar.markdown("---")
-use_dev_mode = st.sidebar.toggle("🛠️ Mode Développeur", value=False)
+use_dev_mode = st.sidebar.toggle("🛠️ Mode Dev", value=False)
 TARGET_DATASET = "historic_datasets_dev" if use_dev_mode else "historic_datasets"
-if use_dev_mode: st.sidebar.warning(f"⚠️ Source : {TARGET_DATASET}")
-
-# Logo Partenaire
-betclic_logo = "https://upload.wikimedia.org/wikipedia/commons/3/36/Logo_Betclic.svg"
-st.sidebar.markdown(f"""
-    <div style="text-align: center; margin-bottom: 20px; margin-top: 10px;">
-        <a href="https://www.betclic.fr" target="_blank">
-            <img src="{betclic_logo}" width="140" style="background-color: white; padding: 10px; border-radius: 5px;">
-        </a>
-        <p style="color: #CCC; font-size: 0.8rem; margin-top: 5px;">Partenaire Paris Sportifs</p>
-    </div>
-""", unsafe_allow_html=True)
 
 # --- 4. CHARGEMENT DONNÉES ---
 @st.cache_resource
@@ -112,404 +72,325 @@ def load_data_complete(season_name, history_seasons, dataset_id):
     client = get_db_client()
     p, d = client.project, dataset_id
     
-    # Saison Focus
+    # Récupération des données
     q_curr = f"SELECT * FROM `{p}.{d}.matchs_clean` WHERE season = '{season_name}' ORDER BY date ASC"
     df_curr = client.query(q_curr).to_dataframe()
     
-    # Historique Multi-Saisons
     s_str = "', '".join(history_seasons)
     q_hist = f"SELECT * FROM `{p}.{d}.matchs_clean` WHERE season IN ('{s_str}')"
     df_hist = client.query(q_hist).to_dataframe()
     
-    # Classement
-    q_class = f"SELECT * FROM `{p}.{d}.classement_live` WHERE saison = '{season_name}' ORDER BY journee_team ASC"
-    df_class = client.query(q_class).to_dataframe()
-    
-    # Calendrier Futur
-    q_cal = f"SELECT * FROM `{p}.{d}.referentiel_calendrier` WHERE datetime_match > CURRENT_TIMESTAMP() ORDER BY datetime_match ASC LIMIT 50"
+    q_cal = f"SELECT * FROM `{p}.{d}.referentiel_calendrier` WHERE datetime_match > CURRENT_TIMESTAMP() ORDER BY datetime_match ASC LIMIT 100"
     try: df_cal = client.query(q_cal).to_dataframe()
     except: df_cal = pd.DataFrame()
     
-    for df in [df_curr, df_hist, df_class]:
-        if not df.empty:
-            for col in ['date', 'match_timestamp']:
-                if col in df.columns: df[col] = pd.to_datetime(df[col], utc=True).dt.tz_localize(None)
-                
-    return df_curr, df_hist, df_class, df_cal
+    # Nettoyage & Conversion
+    for df in [df_curr, df_hist]:
+        if not df.empty and 'date' in df.columns:
+            df['date'] = pd.to_datetime(df['date'], utc=True).dt.tz_localize(None)
 
-# --- 5. LOGIQUE MÉTIER & CALCULS ---
+    # --- FEATURE ENGINEERING (SCIENTIFIQUE) ---
+    # Création du Proxy xG si les données de tirs existent
+    # Formule approx: 0.30 x Tirs Cadrés + 0.07 x Tirs Non Cadrés
+    if 'home_shots_on_target' in df_hist.columns:
+        for df in [df_curr, df_hist]:
+            df['home_xg_proxy'] = (df['home_shots_on_target'] * 0.30) + ((df['home_shots'] - df['home_shots_on_target']) * 0.07)
+            df['away_xg_proxy'] = (df['away_shots_on_target'] * 0.30) + ((df['away_shots'] - df['away_shots_on_target']) * 0.07)
+    else:
+        # Fallback si pas de stats détaillées
+        for df in [df_curr, df_hist]:
+            df['home_xg_proxy'] = df['full_time_home_goals']
+            df['away_xg_proxy'] = df['full_time_away_goals']
 
-def calculate_probabilities(xg_home, xg_away):
+    return df_curr, df_hist, df_cal
+
+# --- 5. MOTEUR STATISTIQUE & MODÉLISATION ---
+
+def calculate_ema_strength(df, team, is_home, metric='xg_proxy', window=10, alpha=0.3):
+    """
+    Calcule la force offensive/défensive pondérée par le temps (Exponential Moving Average).
+    Les matchs récents ont plus de poids.
+    """
+    # Filtrer les matchs de l'équipe
+    team_matches = df[(df['home_team'] == team) | (df['away_team'] == team)].sort_values('date')
+    
+    if team_matches.empty: return 1.0 # Neutre par défaut
+
+    values = []
+    for _, row in team_matches.iterrows():
+        # Si on cherche la force offensive (ATT)
+        if metric == 'attack':
+            val = row['home_xg_proxy'] if row['home_team'] == team else row['away_xg_proxy']
+        # Si on cherche la force défensive (DEF - buts encaissés)
+        else: 
+            val = row['away_xg_proxy'] if row['home_team'] == team else row['home_xg_proxy']
+        values.append(val)
+    
+    # Calcul EMA (Pandas le fait très bien)
+    return pd.Series(values).ewm(alpha=alpha, adjust=False).mean().iloc[-1]
+
+def get_league_averages(df):
+    """Calcule les moyennes globales de la ligue pour normalisation"""
+    avg_home_xg = df['home_xg_proxy'].mean()
+    avg_away_xg = df['away_xg_proxy'].mean()
+    return avg_home_xg, avg_away_xg
+
+def predict_match_scientific(df_history, home_team, away_team):
+    """
+    Modèle Poisson Hybride (Pondéré par la forme récente + xG Proxy)
+    """
+    if df_history.empty: return None
+
+    # 1. Moyennes Ligue
+    avg_h, avg_a = get_league_averages(df_history)
+    
+    # 2. Forces Pondérées (EMA)
+    # Domicile (Attaque vs Moyenne Ligue, Défense vs Moyenne Ligue)
+    home_att = calculate_ema_strength(df_history, home_team, True, 'attack') / avg_h
+    home_def = calculate_ema_strength(df_history, home_team, True, 'defense') / avg_a
+    
+    # Extérieur
+    away_att = calculate_ema_strength(df_history, away_team, False, 'attack') / avg_a
+    away_def = calculate_ema_strength(df_history, away_team, False, 'defense') / avg_h
+    
+    # 3. Calcul Lambdas (Buts attendus pour ce match spécifique)
+    lambda_home = home_att * away_def * avg_h
+    lambda_away = away_att * home_def * avg_a
+    
+    # 4. Distribution de Poisson
     max_goals = 8
     pm = np.zeros((max_goals, max_goals))
     for i in range(max_goals):
         for j in range(max_goals):
-            pm[i, j] = poisson.pmf(i, xg_home) * poisson.pmf(j, xg_away)
-    
+            pm[i, j] = poisson.pmf(i, lambda_home) * poisson.pmf(j, lambda_away)
+            
     p_win = np.sum(np.tril(pm, -1))
     p_draw = np.sum(np.diag(pm))
     p_loss = np.sum(np.triu(pm, 1))
-    p_over = np.sum([pm[i,j] for i in range(max_goals) for j in range(max_goals) if (i+j)>2.5])
-    exact_idx = np.unravel_index(np.argmax(pm, axis=None), pm.shape)
     
-    return {'win': p_win, 'draw': p_draw, 'loss': p_loss, 'over25': p_over, 'exact': exact_idx}
-
-def predict_match_advanced(df_history, team_home, team_away):
-    if df_history.empty: return None
-    avg_h = df_history['full_time_home_goals'].mean()
-    avg_a = df_history['full_time_away_goals'].mean()
-    
-    h_hist = df_history[df_history['home_team'] == team_home]
-    a_hist = df_history[df_history['away_team'] == team_away]
-    if h_hist.empty or a_hist.empty: return None
-    
-    att_h = h_hist['full_time_home_goals'].mean() / avg_h
-    def_h = h_hist['full_time_away_goals'].mean() / avg_a
-    att_a = a_hist['full_time_away_goals'].mean() / avg_a
-    def_a = a_hist['full_time_home_goals'].mean() / avg_h
-    
-    xg_h = att_h * def_a * avg_h
-    xg_a = att_a * def_h * avg_a
-    
-    return calculate_probabilities(xg_h, xg_a)
-
-def get_team_form_html(df_matchs, team, limit=5):
-    matches = df_matchs[((df_matchs['home_team'] == team) | (df_matchs['away_team'] == team)) & (df_matchs['date'] < pd.Timestamp.now())].sort_values('date', ascending=False).head(limit).sort_values('date')
-    html = '<div style="display:flex; align-items:center;">'
-    for _, r in matches.iterrows():
-        is_h = r['home_team'] == team
-        res, cls, flame = 'D', 'loss', ''
-        if r['full_time_result'] == 'D': res, cls = 'N', 'draw'
-        elif (is_h and r['full_time_result']=='H') or (not is_h and r['full_time_result']=='A'):
-            res, cls = 'V', 'win'
-            if abs(r['full_time_home_goals'] - r['full_time_away_goals']) >= 3: flame = "🔥"
-        opp = r['away_team'] if is_h else r['home_team']
-        html += f'<div class="form-badge {cls}" title="vs {opp}">{res}{flame}</div>'
-    html += '</div>'
-    return html
-
-def get_spider_data_normalized(df, team):
-    # Sécurité : Si le dataframe est vide ou None
-    if df is None or df.empty:
-        return [], [], []
-
-    metrics = {
-        'Buts': 'full_time_home_goals', 'Tirs': 'home_shots', 
-        'Cadrés': 'home_shots_on_target', 'Corners': 'home_corners'
+    # Expected Value Calculation (si cotes dispo - placeholder ici)
+    return {
+        'xg_home_predicted': lambda_home,
+        'xg_away_predicted': lambda_away,
+        'probs': {'H': p_win, 'D': p_draw, 'A': p_loss}
     }
-    
-    # Vérification que les colonnes existent
-    for col in metrics.values():
-        if col not in df.columns:
-            return [], [], []
 
-    # Calcul des Moyennes Ligue
-    avg_league = {}
-    for k, v in metrics.items():
-        v_away = v.replace('home', 'away')
-        m_home = df[v].mean()
-        m_away = df[v_away].mean() if v_away in df.columns else 0
-        avg_league[k] = (m_home + m_away) / 2
-        
-    # Filtrage pour l'équipe
-    df_t = df[df['home_team'] == team]
-    if df_t.empty: 
-        return [], [], []
+def detect_value_bet(prediction, odds_h, odds_d, odds_a):
+    """Calcule l'Expected Value (EV)"""
+    ev_h = (prediction['probs']['H'] * odds_h) - 1
+    ev_d = (prediction['probs']['D'] * odds_d) - 1
+    ev_a = (prediction['probs']['A'] * odds_a) - 1
     
-    team_vals = []
-    league_vals = []
-    labels = []
+    best_ev = max(ev_h, ev_d, ev_a)
+    selection = ""
     
-    # Construction des données du Radar
-    for k, v in metrics.items():
-        val = df_t[v].mean()
-        ref_avg = avg_league.get(k, 1)
-        
-        # Sécurité Division par Zéro
-        if ref_avg == 0: ref_avg = 1
-            
-        # Normalisation (Ligue = 50)
-        norm_t = min(100, (val / ref_avg) * 50)
-        norm_l = 50 
-        
-        team_vals.append(norm_t)
-        league_vals.append(norm_l)
-        labels.append(k)
-        
-    return labels, team_vals, league_vals
+    if best_ev == ev_h: selection, odd, prob = "Victoire Domicile", odds_h, prediction['probs']['H']
+    elif best_ev == ev_d: selection, odd, prob = "Nul", odds_d, prediction['probs']['D']
+    else: selection, odd, prob = "Victoire Extérieur", odds_a, prediction['probs']['A']
+    
+    return {
+        'selection': selection,
+        'ev': best_ev, # Pourcentage de rendement espéré (ex: 0.05 = 5%)
+        'odd': odd,
+        'prob': prob
+    }
 
-def calculate_nemesis_stats(df, team):
-    stats = []
-    df_team = df[(df['home_team'] == team) | (df['away_team'] == team)]
-    if df_team.empty: return None
-    for _, row in df_team.iterrows():
-        is_h = row['home_team'] == team
-        opp = row['away_team'] if is_h else row['home_team']
-        res = 'N'
-        if row['full_time_result'] == 'D': res = 'N'
-        elif (is_h and row['full_time_result'] == 'H') or (not is_h and row['full_time_result'] == 'A'): res = 'V'
-        else: res = 'D'
-        stats.append({'opponent': opp, 'result': res, 'goals_against': row['full_time_away_goals'] if is_h else row['full_time_home_goals'], 'reds': row['home_red_cards'] if is_h else row['away_red_cards']})
-    agg = pd.DataFrame(stats).groupby('opponent').agg({'result': list, 'goals_against': 'sum', 'reds': 'sum'})
-    agg['wins'] = agg['result'].apply(lambda x: x.count('V'))
-    agg['losses'] = agg['result'].apply(lambda x: x.count('D'))
-    return agg
+# --- 6. SIMULATION MONTE CARLO ---
 
-def calculate_advanced_stats_and_betting(df, team, stake=10):
-    df_t = df[(df['home_team'] == team) | (df['away_team'] == team)].copy()
-    if df_t.empty: return None, None
-    strats = {'Victoire':0, 'Nul':0, 'Défaite':0} 
-    invest = {k:0 for k in strats} 
+def run_monte_carlo(df_played, df_cal, df_history, n_simulations=100):
+    """
+    Simule la fin de saison N fois pour obtenir des probabilités de classement.
+    """
+    teams = sorted(list(set(df_played['home_team'].unique()) | set(df_played['away_team'].unique())))
     
-    shots, target, yel, red = 0, 0, 0, 0
-    
-    for _, r in df_t.iterrows():
-        is_h = r['home_team'] == team
-        shots += r['home_shots'] if is_h else r['away_shots']
-        target += r['home_shots_on_target'] if is_h else r['away_shots_on_target']
-        yel += r['home_yellow_cards'] if is_h else r['away_yellow_cards']
-        red += r['home_red_cards'] if is_h else r['away_red_cards']
-        
-        # Simulation Betting simple
+    # Classement actuel (points initiaux)
+    current_points = {t: 0 for t in teams}
+    # On recalcule les points réels rapidement
+    for _, r in df_played.iterrows():
         res = r['full_time_result']
-        ho, do, ao = r.get('bet365_home_win_odds', 0), r.get('bet365_draw_odds', 0), r.get('bet365_away_win_odds', 0)
-        
-        if pd.notna(ho) and ho:
-            invest['Victoire'] += stake
-            if (is_h and res=='H') or (not is_h and res=='A'): strats['Victoire'] += (ho if is_h else ao)*stake - stake
-            else: strats['Victoire'] -= stake
+        if res == 'H': current_points[r['home_team']] += 3
+        elif res == 'A': current_points[r['away_team']] += 3
+        elif res == 'D':
+            current_points[r['home_team']] += 1
+            current_points[r['away_team']] += 1
             
-    nb = len(df_t)
-    stats = {'avg_shots': shots/nb, 'avg_target': target/nb, 'avg_yellow': yel/nb, 'avg_red': red/nb}
-    res_df = pd.DataFrame([{'Type': k, 'Profit': v} for k, v in strats.items() if invest[k]>0])
-    return stats, res_df
-
-def apply_standings_style(df):
-    def style_rows(row):
-        rank = row.name
-        style = ''
-        if rank <= 4: 
-            style = 'background-color: rgba(66, 133, 244, 0.6); color: white;' 
-        elif rank == 5: 
-            style = 'background-color: rgba(255, 165, 0, 0.6); color: white;' 
-        elif rank == 6: 
-            style = 'background-color: rgba(46, 204, 113, 0.6); color: white;' 
-        elif rank >= 16: 
-            style = 'background-color: rgba(231, 76, 60, 0.5); color: white;' 
-        
-        # CORRECTIF CRITIQUE : Retourner une liste, pas un string
-        return [style] * len(row)
-
-    df_styled = df.copy()
-    if 1 in df_styled.index: 
-        df_styled.loc[1, 'equipe'] = "👑 " + df_styled.loc[1, 'equipe']
+    # Pré-calcul des lambdas pour les matchs restants (pour aller vite)
+    # On stocke les probas H/D/A pour chaque match du calendrier
+    future_matches = []
     
-    return df_styled.style.apply(style_rows, axis=1)
+    # On ne prend que les matchs futurs de la saison en cours
+    # Note: df_cal contient tout le futur. Il faudrait filtrer pour la saison en cours idéalement.
+    # Ici on suppose que df_cal est propre.
+    
+    avg_h, avg_a = get_league_averages(df_history)
+    team_stats = {}
+    for t in teams:
+        team_stats[t] = {
+            'att_h': calculate_ema_strength(df_history, t, True, 'attack') / avg_h,
+            'def_h': calculate_ema_strength(df_history, t, True, 'defense') / avg_a,
+            'att_a': calculate_ema_strength(df_history, t, False, 'attack') / avg_a,
+            'def_a': calculate_ema_strength(df_history, t, False, 'defense') / avg_h
+        }
 
-def simulate_season_end(df_played, df_history, teams_list):
-    played_pairs = set(zip(df_played['home_team'], df_played['away_team']))
-    all_pairs = set(itertools.permutations(teams_list, 2))
-    remaining = list(all_pairs - played_pairs)
-    avg_h = df_history['full_time_home_goals'].mean()
-    avg_a = df_history['full_time_away_goals'].mean()
-    team_forces = {}
-    for t in teams_list:
-        h = df_history[df_history['home_team']==t]
-        a = df_history[df_history['away_team']==t]
-        if h.empty or a.empty: continue
-        team_forces[t] = {'ah': h['full_time_home_goals'].mean()/avg_h, 'dh': h['full_time_away_goals'].mean()/avg_a, 'aa': a['full_time_away_goals'].mean()/avg_a, 'da': a['full_time_home_goals'].mean()/avg_h}
-    res = []
-    for h, a in remaining:
-        if h not in team_forces or a not in team_forces: continue
-        th, ta = team_forces[h], team_forces[a]
-        mh = th['ah'] * ta['da'] * avg_h
-        ma = ta['aa'] * th['dh'] * avg_a
-        ph = 3 if mh > ma + 0.2 else (1 if abs(mh-ma) <= 0.2 else 0)
-        pa = 3 if ma > mh + 0.2 else (1 if abs(mh-ma) <= 0.2 else 0)
-        res.append({'equipe': h, 'pts': ph})
-        res.append({'equipe': a, 'pts': pa})
-    return pd.DataFrame(res)
-
-def prepare_calendar_table(df_cal, df_history):
-    if df_cal.empty: return pd.DataFrame()
-    next_journee = df_cal['journee'].min()
-    df_next = df_cal[df_cal['journee'] == next_journee].copy()
-    rows = []
-    for _, row in df_next.iterrows():
-        home, away = row['home_team'], row['away_team']
-        pred = predict_match_advanced(df_history, home, away)
-        bg_h, bg_a, bg_d, best_bet = "", "", "", "Indécis"
+    for _, row in df_cal.iterrows():
+        h, a = row['home_team'], row['away_team']
+        if h not in teams or a not in teams: continue
         
-        if pred:
-            p_w, p_d, p_l, p_o = pred['win'], pred['draw'], pred['loss'], pred['over25']
-            if p_w > 0.5: bg_h = "background-color: rgba(46, 204, 113, 0.4)"
-            if p_l > 0.5: bg_a = "background-color: rgba(46, 204, 113, 0.4)"
-            if p_d > 0.3: bg_d = "background-color: rgba(255, 165, 0, 0.4)"
-            
-            options = {f"Victoire {home}": p_w, f"Victoire {away}": p_l, "Nul": p_d, "+2.5 Buts": p_o}
-            if p_o < 0.6: del options["+2.5 Buts"] # Seuil de confiance 60%
-            
-            best_opt = max(options, key=options.get)
-            best_bet = f"{best_opt} ({options[best_opt]*100:.0f}%)"
-            
-            rows.append({
-                "Date": row['datetime_match'].strftime('%d/%m %H:%M'), "Domicile": home,
-                "Prob. 1": f"{p_w*100:.0f}%", "Prob. N": f"{p_d*100:.0f}%", "Prob. 2": f"{p_l*100:.0f}%",
-                "Extérieur": away, "Meilleur Pari 💡": best_bet,
-                "_bg_h": bg_h, "_bg_d": bg_d, "_bg_a": bg_a
-            })
-    return pd.DataFrame(rows)
+        # Calcul lambdas rapide
+        lh = team_stats[h]['att_h'] * team_stats[a]['def_a'] * avg_h
+        la = team_stats[a]['att_a'] * team_stats[h]['def_h'] * avg_a
+        
+        # Probas simplifiées (pas besoin de Poisson complet pour 1000 sims, trop lent)
+        # Approximation : Win si diff > 0.3, Draw si proche
+        # Pour Monte Carlo précis, on tire un score aléatoire via Poisson
+        future_matches.append({'h': h, 'a': a, 'lh': lh, 'la': la})
 
-def calculate_global_stats(df):
-    if df.empty: return {}
-    nb = len(df)
-    g = df['full_time_home_goals'].sum() + df['full_time_away_goals'].sum()
-    s = df['home_shots'].sum() + df['away_shots'].sum()
-    return {'Buts Totaux': int(g), 'Buts / Match': round(g/nb, 2), 'Tirs / Match': round(s/nb, 1)}
+    results = {t: {'champion': 0, 'top4': 0, 'relegation': 0} for t in teams}
+    
+    progress_bar = st.progress(0)
+    
+    for i in range(n_simulations):
+        sim_points = current_points.copy()
+        
+        for m in future_matches:
+            # Tirage aléatoire des buts
+            g_h = np.random.poisson(m['lh'])
+            g_a = np.random.poisson(m['la'])
+            
+            if g_h > g_a: sim_points[m['h']] += 3
+            elif g_a > g_h: sim_points[m['a']] += 3
+            else:
+                sim_points[m['h']] += 1
+                sim_points[m['a']] += 1
+        
+        # Classement final de cette simulation
+        # Tri par points (on ignore diff buts pour simplicité ici, mais crucial en vrai)
+        sorted_teams = sorted(sim_points.items(), key=lambda x: x[1], reverse=True)
+        
+        # Enregistrement Stats
+        results[sorted_teams[0][0]]['champion'] += 1
+        for j in range(4): # Top 4
+            results[sorted_teams[j][0]]['top4'] += 1
+        for j in range(16, 18): # Relégation (Ligue 1 à 18 clubs)
+            if j < len(sorted_teams):
+                results[sorted_teams[j][0]]['relegation'] += 1
+        
+        if i % 10 == 0: progress_bar.progress(i / n_simulations)
+            
+    progress_bar.empty()
+    
+    # Conversion en DataFrame %
+    df_res = pd.DataFrame(results).T
+    df_res = df_res / n_simulations * 100
+    df_res = df_res.sort_values('champion', ascending=False)
+    return df_res
 
-# --- 6. INTERFACE ---
-st.sidebar.markdown("---")
-st.sidebar.title("🔍 Filtres")
+# --- 7. INTERFACE GRAPHIQUE ---
+
 all_seasons = get_seasons_list(TARGET_DATASET)
-# Par défaut TOUTES les saisons sont sélectionnées
-selected_seasons = st.sidebar.multiselect("Historique (Poisson)", all_seasons, default=all_seasons)
-focus_season = sorted(selected_seasons, reverse=True)[0] if selected_seasons else all_seasons[0]
+selected_seasons = st.sidebar.multiselect("Données d'entrainement", all_seasons, default=all_seasons[:3]) # Par défaut 3 dernières
+focus_season = all_seasons[0] # Saison courante
 
-df_curr, df_hist, df_class, df_cal = load_data_complete(focus_season, selected_seasons, TARGET_DATASET)
-teams = sorted(df_curr['home_team'].unique())
+df_curr, df_hist, df_cal = load_data_complete(focus_season, selected_seasons, TARGET_DATASET)
 
-if page == "Dashboard":
-    st.markdown('<div class="main-title">LIGUE 1 DATA CENTER</div>', unsafe_allow_html=True)
+if page == "Analyse Scientifique":
+    st.markdown('<div class="main-title">Analyse Statistique Avancée</div>', unsafe_allow_html=True)
     
-    # 1. SCORECARDS
-    st.markdown(f"### 🌍 Statistiques {focus_season}")
-    g_stats = calculate_global_stats(df_curr)
-    cols = st.columns(len(g_stats))
-    for i, (k, v) in enumerate(g_stats.items()):
-        cols[i].markdown(f"""<div class="global-card"><p class="global-val">{v}</p><p class="global-lbl">{k}</p></div>""", unsafe_allow_html=True)
+    col1, col2 = st.columns([1, 2])
     
-    st.markdown("---")
-
-    # 2. ANALYSE CLUB
-    st.subheader("🛡️ Analyse Club")
-    my_team = st.sidebar.selectbox("Sélectionner un Club", teams)
-    max_j = int(df_class['journee_team'].max()) if not df_class.empty else 1
-    cur_j = st.sidebar.slider("Arrêter à la journée :", 1, max_j, max_j)
-    
-    df_snap = df_class[df_class['journee_team'] <= cur_j].sort_values('match_timestamp').groupby('equipe').last().reset_index()
-    df_snap['rang'] = df_snap['total_points'].rank(ascending=False, method='min')
-    
-    if not df_snap[df_snap['equipe'] == my_team].empty:
-        stats_team = df_snap[df_snap['equipe'] == my_team].iloc[0]
+    with col1:
+        st.subheader("Paramètres du Match")
+        teams = sorted(df_curr['home_team'].unique())
+        team_h = st.selectbox("Domicile", teams, index=0)
+        team_a = st.selectbox("Extérieur", teams, index=1)
         
-        c_head, c_form = st.columns([2, 1])
-        with c_head: st.markdown(f"## {my_team}")
-        with c_form: 
-            st.caption("Forme (5 derniers matchs)")
-            st.markdown(get_team_form_html(df_curr, my_team), unsafe_allow_html=True)
+        # Stats contextuelles
+        st.markdown("---")
+        st.markdown("#### Indicateurs Clés (Forme Récente)")
+        
+        # Calcul xG Proxy Moyen (5 derniers matchs)
+        xh = calculate_ema_strength(df_curr, team_h, True, 'attack')
+        xa = calculate_ema_strength(df_curr, team_a, False, 'attack')
+        
+        st.metric(f"xG Force {team_h}", f"{xh:.2f}", help="Basé sur l'EMA des tirs cadrés")
+        st.metric(f"xG Force {team_a}", f"{xa:.2f}", help="Basé sur l'EMA des tirs cadrés")
+        
+    with col2:
+        if st.button("Lancer la Prédiction Scientifique 🚀", type="primary"):
+            pred = predict_match_scientific(df_curr, team_h, team_a)
             
-        k1, k2, k3, k4 = st.columns(4)
-        k1.markdown(f'<div class="metric-card"><div class="metric-label">Classement</div><div class="metric-value">{int(stats_team["rang"])}e</div></div>', unsafe_allow_html=True)
-        k2.markdown(f'<div class="metric-card"><div class="metric-label">Points</div><div class="metric-value">{int(stats_team["total_points"])}</div></div>', unsafe_allow_html=True)
-        k3.markdown(f'<div class="metric-card"><div class="metric-label">Buts Pour</div><div class="metric-value">{int(stats_team["total_bp"])}</div></div>', unsafe_allow_html=True)
-        k4.markdown(f'<div class="metric-card"><div class="metric-label">Diff.</div><div class="metric-value" style="color:white !important">{int(stats_team["total_diff"]):+d}</div></div>', unsafe_allow_html=True)
-        
-        st.markdown("---")
-        # Visualisations Avancées (ROI + Radar)
-        c_bet, c_rad = st.columns(2)
-        with c_bet:
-            st.subheader("💰 Rentabilité Paris")
-            stake = 10
-            adv_stats, bet_df = calculate_advanced_stats_and_betting(df_curr, my_team, stake)
-            if bet_df is not None:
-                fig_b = go.Figure(go.Bar(x=bet_df['Type'], y=bet_df['Profit'], marker_color=['#2ECC71' if x>0 else '#E74C3C' for x in bet_df['Profit']]))
-                fig_b.update_layout(title=f"Profit/Perte (Mise {stake}€)", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='white'), height=300)
-                st.plotly_chart(fig_b, use_container_width=True)
-        
-        with c_rad:
-            st.subheader("🕸️ Style de Jeu")
-            cats, v1, v2 = get_spider_data_normalized(df_curr, my_team)
-            if cats:
-                fig_r = go.Figure()
-                fig_r.add_trace(go.Scatterpolar(r=v1, theta=cats, fill='toself', name=my_team, line_color='#DAE025'))
-                fig_r.add_trace(go.Scatterpolar(r=v2, theta=cats, fill='toself', name='Moyenne Ligue', line_color='#95A5A6'))
-                fig_r.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100], color='white')), paper_bgcolor='rgba(0,0,0,0)', font=dict(color='white'), height=300)
-                st.plotly_chart(fig_r, use_container_width=True)
-
-        st.markdown("---")
-        st.subheader("⚔️ Analyse des Confrontations (Bête Noire)")
-        agg = calculate_nemesis_stats(df_hist, my_team)
-        if agg is not None:
-            best = agg.sort_values('wins', ascending=False).index[0]
-            worst = agg.sort_values('losses', ascending=False).index[0]
-            k1, k2 = st.columns(2)
-            k1.success(f"**Proie Favorite :** {best} ({agg.loc[best, 'wins']} victoires)")
-            k2.error(f"**Bête Noire :** {worst} ({agg.loc[worst, 'losses']} défaites)")
-
-        st.markdown("---")
-        st.subheader("🔮 Prédiction & Paris")
-        
-        c_sel, c_res = st.columns([1, 2])
-        with c_sel:
-            opp_sel = st.selectbox("Adversaire", ["Vue Globale"] + [t for t in teams if t != my_team])
-            loc = st.radio("Lieu", ["Domicile", "Extérieur"])
-            is_home = "Domicile" in loc
-            th, ta = (my_team, opp_sel) if is_home else (opp_sel, my_team)
-
-        if opp_sel == "Vue Globale":
-            rows = []
-            for o in teams:
-                if o == my_team: continue
-                r = predict_match_advanced(df_hist, my_team, o) 
-                if r: rows.append({'Adversaire': o, 'Victoire': r['win'], 'Nul': r['draw'], 'Défaite': r['loss']})
-            if rows:
-                st.dataframe(pd.DataFrame(rows).set_index('Adversaire').style.format("{:.1f}%").background_gradient(subset=['Victoire'], cmap='Greens'), width=None)
-        else:
-            res = predict_match_advanced(df_hist, th, ta)
-            if res:
-                with c_res:
-                    s1, s2 = res['exact']
-                    st.markdown(f"""<div class="score-card"><div style="color:#DAE025;">SCORE PROBABLE</div><div class="score-display">{th} {s1}-{s2} {ta}</div></div>""", unsafe_allow_html=True)
+            if pred:
+                ph, pd_, pa = pred['probs']['H'], pred['probs']['D'], pred['probs']['A']
+                
+                # Jauge Probabilités
+                fig_gauge = go.Figure(go.Bar(
+                    x=[ph, pd_, pa],
+                    y=['Probabilités'],
+                    orientation='h',
+                    text=[f"{team_h} {ph:.0%}", f"Nul {pd_:.0%}", f"{team_a} {pa:.0%}"],
+                    textposition='auto',
+                    marker=dict(color=['#00b894', '#ffeaa7', '#ff7675'])
+                ))
+                fig_gauge.update_layout(barmode='stack', height=100, margin=dict(l=0,r=0,t=0,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', xaxis=dict(showgrid=False, showticklabels=False))
+                st.plotly_chart(fig_gauge, use_container_width=True)
+                
+                # Expected Goals
+                c1, c2 = st.columns(2)
+                c1.markdown(f"""<div class="kpi-card"><div class="kpi-val">{pred['xg_home_predicted']:.2f}</div><div class="kpi-lbl">xG Attendus {team_h}</div></div>""", unsafe_allow_html=True)
+                c2.markdown(f"""<div class="kpi-card"><div class="kpi-val">{pred['xg_away_predicted']:.2f}</div><div class="kpi-lbl">xG Attendus {team_a}</div></div>""", unsafe_allow_html=True)
+                
+                # Analyse de Value (Simulation de cotes fictives pour l'exemple)
+                # Dans un vrai cas, on ferait un merge avec df_curr['avg_home_win_odds'] etc.
+                st.subheader("💸 Détection de Value (Exemple)")
+                st.info("Comparaison automatique avec les cotes moyennes du marché (si disponibles)")
+                
+                # Récupération des cotes moyennes SI le match existe déjà dans la base
+                match_data = df_curr[((df_curr['home_team'] == team_h) & (df_curr['away_team'] == team_a)) | ((df_curr['home_team'] == team_a) & (df_curr['away_team'] == team_h))]
+                
+                if not match_data.empty:
+                    last_m = match_data.iloc[-1]
+                    # On prend les cotes Pinnacle ou Moyenne
+                    oh = last_m.get('pinnacle_home_win_odds', last_m.get('avg_home_win_odds', 0))
+                    od = last_m.get('pinnacle_draw_odds', last_m.get('avg_draw_odds', 0))
+                    oa = last_m.get('pinnacle_away_win_odds', last_m.get('avg_away_win_odds', 0))
                     
-                    pw, pl, pd_ = (res['win'], res['loss'], res['draw']) if is_home else (res['loss'], res['win'], res['draw'])
-                    if pw > max(pl, pd_): txt, prob, col = f"Victoire {my_team}", pw, "#2ECC71"
-                    elif pl > max(pw, pd_): txt, prob, col = f"Victoire {opp_sel}", pl, "#E74C3C"
-                    else: txt, prob, col = "Match Nul", pd_, "#F1C40F"
-                    
-                    goal_txt = "+2.5 Buts" if res['over25'] > 0.6 else ("-2.5 Buts" if (1-res['over25']) > 0.6 else "Pas de tendance (Cote serrée)")
-                    goal_prob = res['over25'] if res['over25'] > 0.6 else (1-res['over25'])
-                    
-                    c1, c2 = st.columns(2)
-                    c1.markdown(f"""<div class="advice-box" style="border-color:{col}"><span style="font-weight:bold;color:{col}">{txt}</span> ({prob*100:.1f}%)</div>""", unsafe_allow_html=True)
-                    if goal_prob > 0.6:
-                        c2.markdown(f"""<div class="advice-box" style="border-color:#3498DB"><span style="font-weight:bold;color:#3498DB">{goal_txt}</span> ({goal_prob*100:.1f}%)</div>""", unsafe_allow_html=True)
+                    if oh > 1:
+                        val_res = detect_value_bet(pred, oh, od, oa)
+                        color_ev = "ev-positive" if val_res['ev'] > 0 else "ev-negative"
+                        st.markdown(f"""
+                        <div class="value-bet">
+                            <strong>Marché :</strong> 1 ({oh}) | N ({od}) | 2 ({oa})<br>
+                            <strong>Modèle :</strong> 1 ({1/ph:.2f}) | N ({1/pd_:.2f}) | 2 ({1/pa:.2f})<br>
+                            <hr>
+                            <span class="{color_ev}">EV (Rendement) : {val_res['ev']*100:.1f}%</span> sur <strong>{val_res['selection']}</strong>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.warning("Pas de cotes disponibles pour ce match.")
+                else:
+                    st.write("Match futur ou non trouvé dans la base pour récupérer les cotes.")
 
-    st.markdown("---")
-    st.subheader("📅 Prochaine Journée (Smart Analysis)")
-    df_smart = prepare_calendar_table(df_cal, df_hist)
-    if not df_smart.empty:
-        def style_cal(row):
-            return ['', '', row['_bg_h'], row['_bg_d'], row['_bg_a'], '', '', '', '', '']
-        st.dataframe(df_smart.style.apply(style_cal, axis=1), column_config={"_bg_h":None, "_bg_d":None, "_bg_a":None}, width=None, hide_index=True)
-    else: st.info("Aucun match futur trouvé.")
-
-    st.markdown("---")
-    st.subheader("🏆 Classement Live")
-    df_show = df_snap[['rang', 'equipe', 'total_points', 'total_diff', 'total_V', 'total_N', 'total_D']].set_index('rang').sort_index()
-    # Utilisation correcte de la fonction
-    st.dataframe(apply_standings_style(df_show), width=None)
-
-elif page == "Classement Prédictif":
-    st.markdown('<div class="main-title">🔮 CLASSEMENT FINAL PROJETÉ</div>', unsafe_allow_html=True)
-    if st.button("Lancer la simulation"):
-        with st.spinner("Calcul en cours..."):
-            sim_pts = simulate_season_end(df_curr, df_hist, teams)
-            if not sim_pts.empty:
-                agg = sim_pts.groupby('equipe')['pts'].sum().reset_index()
-                curr = df_class.sort_values('match_timestamp').groupby('equipe').last().reset_index()[['equipe', 'total_points']]
-                final = pd.merge(curr, agg, on='equipe', how='left').fillna(0)
-                final['Total Projeté'] = final['total_points'] + final['pts']
-                final = final.sort_values('Total Projeté', ascending=False).reset_index(drop=True)
-                final.index += 1
-                st.success("Projection terminée !")
-                st.dataframe(apply_standings_style(final), width=None, height=600)
+elif page == "Simulateur Monte Carlo":
+    st.markdown('<div class="main-title">🔮 Monte Carlo Season</div>', unsafe_allow_html=True)
+    st.markdown("""
+    Cette simulation joue les matchs restants **1000 fois** en utilisant les forces offensives/défensives pondérées (xG Proxy).
+    Cela permet de quantifier l'incertitude.
+    """)
+    
+    if st.button("Lancer la Simulation (1000 itérations)"):
+        with st.spinner("Calcul des probabilités en cours..."):
+            df_mc = run_monte_carlo(df_curr, df_cal, df_curr, n_simulations=1000)
+            
+            st.dataframe(
+                df_mc.style.format("{:.1f}%")
+                .background_gradient(subset=['champion'], cmap='Greens')
+                .background_gradient(subset=['top4'], cmap='Blues')
+                .background_gradient(subset=['relegation'], cmap='Reds'),
+                use_container_width=True,
+                height=800
+            )
+            
+            # Graphique
+            st.subheader("Probabilité de titre")
+            fig = px.bar(df_mc[df_mc['champion']>0], y='champion', title="Favoris pour le titre (%)")
+            st.plotly_chart(fig, use_container_width=True)
