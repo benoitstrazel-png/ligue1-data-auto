@@ -352,7 +352,8 @@ def run_monte_carlo(df_played, df_cal, df_history, n_simulations=500):
     
     prog.empty()
     df_res = pd.DataFrame(list(results.items()), columns=['equipe', 'titres'])
-    df_res['Prob. Titre'] = (df_res['titres'] / n_simulations * 100).map('{:.1f}%'.format)
+    # CORRECTION : On garde les valeurs numériques (float), on ne convertit pas en string avec le % ici
+    df_res['Prob. Titre'] = (df_res['titres'] / n_simulations * 100)
     return df_res.sort_values('titres', ascending=False).drop(columns=['titres'])
 
 def apply_standings_style(df):
@@ -530,4 +531,11 @@ elif page == "Classement Prédictif":
     if st.button("Lancer la Simulation"):
         with st.spinner("Simulation de la saison en cours..."):
             df_mc = run_monte_carlo(df_curr, df_cal, df_curr)
-            st.dataframe(df_mc.style.background_gradient(subset=['Prob. Titre'], cmap='Greens'), use_container_width=True, height=600)
+            # CORRECTION : On applique le formatage pourcentage ici, après le calcul du gradient
+            st.dataframe(
+                df_mc.style
+                .background_gradient(subset=['Prob. Titre'], cmap='Greens')
+                .format({'Prob. Titre': '{:.1f}%'}), 
+                use_container_width=True, 
+                height=600
+            )
