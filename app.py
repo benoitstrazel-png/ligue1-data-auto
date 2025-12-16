@@ -301,10 +301,11 @@ def calculate_advanced_stats_and_betting(df, team, stake=10):
     return pd.DataFrame([{'Type': k, 'Profit': v} for k, v in strats.items()])
 
 def run_monte_carlo(df_played, df_cal, df_history, n_simulations=500):
-    """Simulation de fin de saison (Remplace simulate_season_end)"""
+    """Simulation de fin de saison (Points Moyens + Probabilité Titre)"""
     teams = sorted(list(set(df_played['home_team'].unique()) | set(df_played['away_team'].unique())))
+    
+    # 1. Calcul des points actuels (acquis)
     current_points = {t: 0 for t in teams}
-    # Points actuels
     for _, r in df_played.iterrows():
         if r['full_time_result'] == 'H': current_points[r['home_team']] += 3
         elif r['full_time_result'] == 'A': current_points[r['away_team']] += 3
@@ -312,9 +313,13 @@ def run_monte_carlo(df_played, df_cal, df_history, n_simulations=500):
             current_points[r['home_team']] += 1
             current_points[r['away_team']] += 1
             
-    # Paramètres équipes
+    # 2. Paramètres de force des équipes (xG Proxy)
     avg_h = df_history['home_xg_proxy'].mean()
     avg_a = df_history['away_xg_proxy'].mean()
+    # Sécurité si division par zéro
+    if pd.isna(avg_h) or avg_h == 0: avg_h = 1.3
+    if pd.isna(avg_a) or avg_a == 0: avg_a = 1.0
+
     team_stats = {}
     for t in teams:
         team_stats[t] = {
@@ -324,7 +329,7 @@ def run_monte_carlo(df_played, df_cal, df_history, n_simulations=500):
             'def_a': calculate_ema_strength(df_history, t, False, 'def')/avg_h
         }
     
-    # Matchs à jouer
+    # 3. Préparation des matchs à jouer
     future = []
     for _, row in df_cal.iterrows():
         h, a = row['home_team'], row['away_team']
@@ -333,29 +338,49 @@ def run_monte_carlo(df_played, df_cal, df_history, n_simulations=500):
             la = team_stats[a]['att_a'] * team_stats[h]['def_h'] * avg_a
             future.append({'h': h, 'a': a, 'lh': lh, 'la': la})
             
-    results = {t: 0 for t in teams}
+    # 4. Simulation
+    # On stocke le total des points cumulés sur toutes les sims pour faire la moyenne
+    total_points_acc = {t: 0 for t in teams}
+    title_count = {t: 0 for t in teams}
+    
     prog = st.progress(0)
     
     for i in range(n_simulations):
         sim_pts = current_points.copy()
         for m in future:
-            # Tirage aléatoire Poisson
+            # Tirage aléatoire Poisson pour le score
             gh, ga = np.random.poisson(m['lh']), np.random.poisson(m['la'])
             if gh > ga: sim_pts[m['h']] += 3
             elif ga > gh: sim_pts[m['a']] += 3
             else: sim_pts[m['h']] += 1; sim_pts[m['a']] += 1
         
-        # Vainqueur
+        # Accumulation pour la moyenne
+        for t in teams:
+            total_points_acc[t] += sim_pts[t]
+
+        # Vainqueur de cette simulation
         champion = max(sim_pts, key=sim_pts.get)
-        results[champion] += 1
+        title_count[champion] += 1
+        
         if i % 50 == 0: prog.progress(i/n_simulations)
     
     prog.empty()
-    df_res = pd.DataFrame(list(results.items()), columns=['equipe', 'titres'])
-    # CORRECTION : On garde les valeurs numériques (float), on ne convertit pas en string avec le % ici
-    df_res['Prob. Titre'] = (df_res['titres'] / n_simulations * 100)
-    return df_res.sort_values('titres', ascending=False).drop(columns=['titres'])
-
+    
+    # 5. Construction du résultat final
+    results_data = []
+    for t in teams:
+        avg_pts = total_points_acc[t] / n_simulations
+        prob_titre = (title_count[t] / n_simulations) * 100
+        results_data.append({
+            'equipe': t,
+            'Points Projetés': avg_pts,
+            'Prob. Titre': prob_titre
+        })
+        
+    df_res = pd.DataFrame(results_data)
+    # Tri par points projetés décroissants
+    return df_res.sort_values('Points Projetés', ascending=False).reset_index(drop=True)
+    
 def apply_standings_style(df):
     def style_rows(row):
         rank = row.name
@@ -526,16 +551,19 @@ if page == "Dashboard":
 
 elif page == "Classement Prédictif":
     st.markdown('<div class="main-title">🔮 Simulation Monte Carlo</div>', unsafe_allow_html=True)
-    st.markdown("Simulation de la fin de saison (500 itérations) basée sur la force xG des équipes.")
+    st.markdown("Simulation de la fin de saison (500 itérations). Le modèle calcule les **points moyens finaux** attendus pour chaque équipe.")
     
     if st.button("Lancer la Simulation"):
         with st.spinner("Simulation de la saison en cours..."):
+            # Note : Assurez-vous que df_curr contient bien les matchs joués et df_cal les matchs futurs
             df_mc = run_monte_carlo(df_curr, df_cal, df_curr)
-            # CORRECTION : On applique le formatage pourcentage ici, après le calcul du gradient
+            
+            # Affichage avec deux colonnes formatées différemment
             st.dataframe(
                 df_mc.style
-                .background_gradient(subset=['Prob. Titre'], cmap='Greens')
-                .format({'Prob. Titre': '{:.1f}%'}), 
+                .format({'Points Projetés': '{:.1f}', 'Prob. Titre': '{:.1f}%'})
+                .background_gradient(subset=['Points Projetés'], cmap='Blues')
+                .background_gradient(subset=['Prob. Titre'], cmap='Greens'),
                 use_container_width=True, 
-                height=600
+                height=800
             )
