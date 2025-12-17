@@ -3,6 +3,7 @@ import pandas as pd
 import os
 import json
 from pandas_gbq import to_gbq
+from google.oauth2 import service_account
 
 # --- CONFIGURATION ---
 PROJECT_ID = os.environ["GCP_PROJECT_ID"]

@@ -135,12 +135,12 @@ def load_data_complete(season_name, history_seasons, dataset_id):
             for col in ['date', 'match_timestamp', 'datetime_match']:
                 if col in df.columns: df[col] = pd.to_datetime(df[col], utc=True).dt.tz_localize(None)
 
-    # Ajout xG Proxy (Estimé: 0.3 * Cadré + 0.07 * Non-Cadré)
+    # Ajout xG Proxy (Estimé: 0.3 * Cadré + 0.7 * Non-Cadré)
     if not df_hist.empty and 'home_shots_on_target' in df_hist.columns:
         for df in [df_curr, df_hist]:
             if not df.empty and 'home_shots' in df.columns:
-                df['home_xg_proxy'] = (df['home_shots_on_target'] * 0.30) + ((df['home_shots'] - df['home_shots_on_target']) * 0.07)
-                df['away_xg_proxy'] = (df['away_shots_on_target'] * 0.30) + ((df['away_shots'] - df['away_shots_on_target']) * 0.07)
+                df['home_xg_proxy'] = (df['home_shots_on_target'] * 0.30) + ((df['home_shots'] - df['home_shots_on_target']) * 0.7)
+                df['away_xg_proxy'] = (df['away_shots_on_target'] * 0.30) + ((df['away_shots'] - df['away_shots_on_target']) * 0.7)
             else:
                 # Fallback si stats tirs manquantes
                 df['home_xg_proxy'] = df['full_time_home_goals']
